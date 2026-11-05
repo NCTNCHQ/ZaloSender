@@ -22,7 +22,7 @@ Tác giả / chủ dự án: **Nguyễn Công Trung** — Congtrung127@gmail.com
   - `version.py`: `APP_VERSION`, `AUTHOR`, `AUTHOR_EMAIL`.
 - `cong_cu_tac_gia/`: công cụ Tạo Key (`tao_key.py`), Phát hành (`phat_hanh.py`), Đóng gói (`dong_goi.py`).
 - `phat_hanh/v<số>/`: các bản đã phát hành (`ZaloSender_v<số>.zip` + `phien_ban.json`).
-- `.github/workflows/phat_hanh.yml`: đẩy tag `v<số>` thì GitHub Actions tự tạo Release.
+- `.github/workflows/phat_hanh.yml`: nhánh main có `phat_hanh/v<số>/` mới thì GitHub Actions tự tạo Release.
 
 ## Bản Standard / PRO
 - Cài xong là Standard. Nhập Key (gắn Mã máy, vĩnh viễn hoặc có hạn) thì mở PRO.
@@ -38,8 +38,8 @@ Tác giả / chủ dự án: **Nguyễn Công Trung** — Congtrung127@gmail.com
 1. Sửa `ung_dung/version.py` (APP_VERSION), cập nhật `NHAT_KY_PHIEN_BAN.md` và `HUONG_DAN.md` nếu cần.
 2. Viết file ghi chú "Có gì mới" ngắn gọn (tiếng Việt, hiện cho người dùng).
 3. `python cong_cu_tac_gia/dong_goi.py --notes-file <ghi_chu.txt> [--required]` tạo `phat_hanh/v<số>/ZaloSender_v<số>.zip` và `phien_ban.json` có ký số.
-4. Commit (không có .pem) rồi `git push origin main`.
-5. `git tag v<số> && git push origin v<số>`: GitHub Actions tự tạo Release kèm 2 file.
+4. Commit (không có .pem) rồi `git push origin main`. **Không cần tag**: GitHub Actions (`phat_hanh.yml`) thấy thư mục `phat_hanh/v<số>/` mới thì tự tạo tag và Release kèm 2 file. Môi trường cloud chặn việc đẩy tag, nên không dùng tag.
+5. Theo dõi: `gh run list -R NCTNCHQ/ZaloSender --limit 3`, sau đó `gh release view v<số> -R NCTNCHQ/ZaloSender`.
 6. Kiểm tra: tải `https://github.com/NCTNCHQ/ZaloSender/releases/latest/download/phien_ban.json`, chạy `updater.verify_manifest`, tải zip và so SHA-256.
 7. Nếu Actions hoặc quyền ghi bị chặn: gửi chủ dự án 2 file và hướng dẫn đăng tay (Releases → Draft a new release → tag v<số> → đính kèm 2 file → Publish).
 

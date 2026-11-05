@@ -1,9 +1,12 @@
-# Tự tạo GitHub Release khi đẩy tag v<số> (vd v1.11).
-# Thư mục phat_hanh/<tag>/ phải có: ZaloSender_<tag>.zip và phien_ban.json (đã ký số bằng khóa bí mật của tác giả).
+# Tự tạo GitHub Release cho bản mới nhất trong phat_hanh/ khi nhánh main thay đổi.
+# Thư mục phat_hanh/v<số>/ phải có: ZaloSender_v<số>.zip và phien_ban.json (đã ký số bằng khóa bí mật của tác giả).
+# Nếu Release v<số> đã có thì bỏ qua (không tạo trùng).
 name: Phat hanh ban moi
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["phat_hanh/**", ".github/workflows/phat_hanh.yml"]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -11,14 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Tao Release
+      - name: Tao Release cho ban moi nhat
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          DIR="phat_hanh/${TAG}"
-          test -f "${DIR}/phien_ban.json" || { echo "Thiếu ${DIR}/phien_ban.json"; exit 1; }
-          test -f "${DIR}/ZaloSender_${TAG}.zip" || { echo "Thiếu ${DIR}/ZaloSender_${TAG}.zip"; exit 1; }
-          python3 -c "import json,sys; d=json.load(open('${DIR}/phien_ban.json',encoding='utf-8'))['data']; open('notes.md','w',encoding='utf-8').write(d['notes']); sys.exit(0 if 'v'+d['version']=='${TAG}' else 'Sai phiên bản trong phien_ban.json')"
-          gh release create "${TAG}" "${DIR}/ZaloSender_${TAG}.zip" "${DIR}/phien_ban.json" \
-            --title "${TAG}" --notes-file notes.md --latest
+          TAG=$(python3 - <<'PY'
+          import os, re
+          vs = [d for d in os.listdir("phat_hanh") if re.fullmatch(r"v\d+(\.\d+)+", d)]
+          vs.sort(key=lambda d: tuple(int(x) for x in d[1:].split(".")))
+          print(vs[-1] if vs else "")
+          PY
+          )
+          [ -n "$TAG" ] || { echo "Không có thư mục phát hành"; exit 0; }
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "Release $TAG đã có — bỏ qua"; exit 0; fi
+          DIR="phat_hanh/$TAG"
+          test -f "$DIR/phien_ban.json" && test -f "$DIR/ZaloSender_$TAG.zip" || { echo "Thiếu file trong $DIR"; exit 1; }
+          python3 -c "import json,sys; d=json.load(open('$DIR/phien_ban.json',encoding='utf-8'))['data']; open('notes.md','w',encoding='utf-8').write(d['notes']); sys.exit(0 if 'v'+d['version']=='$TAG' else 'Sai phiên bản trong phien_ban.json')"
+          gh release create "$TAG" "$DIR/ZaloSender_$TAG.zip" "$DIR/phien_ban.json" \
+            --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md --latest
+          echo "Đã tạo Release $TAG"
