@@ -6,6 +6,11 @@ Từ v1.9, ứng dụng có **2 bản**:
 
 Mỗi thay đổi được ghi rõ thuộc **[Cả 2 bản]**, **[Standard]** hay **[PRO]**.
 
+## v1.10.1 — 05/11/2026
+**[Cả 2 bản]** Bản thử nghiệm **quy trình phát hành tự động** qua GitHub Actions. Không thay đổi chức năng.
+- Mã nguồn và quy trình phát hành được lưu trên kho GitHub NCTNCHQ/ZaloSender.
+- Máy đang dùng v1.10 sẽ thấy thông báo "Có phiên bản mới v1.10.1". Đây là dịp thử **cập nhật tự động thật** lần đầu.
+
 ## v1.10 — 05/11/2026
 **[Cả 2 bản] Cập nhật phiên bản mới qua GitHub**
 - Mỗi lần mở (tối đa 1 lần/ngày), ứng dụng tự kiểm tra bản mới tại **github.com/NCTNCHQ/ZaloSender** (mục Releases). Mất mạng thì bỏ qua, không báo lỗi.

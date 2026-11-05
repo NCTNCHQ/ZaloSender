@@ -1,4 +1,4 @@
-# Hướng dẫn: Gửi tin nhắn Zalo tự động – v1.10
+# Hướng dẫn: Gửi tin nhắn Zalo tự động – v1.10.1
 
 Tác giả: **Nguyễn Công Trung** — Congtrung127@gmail.com
 

@@ -1,0 +1,13 @@
+{
+ "data": {
+  "version": "1.10.1",
+  "file": "ZaloSender_v1.10.1.zip",
+  "size": 227631,
+  "sha256": "bde9aee970428640a9e9f6feebd0458b7f29eba71e70f53894ca5a2741833194",
+  "url": "https://github.com/NCTNCHQ/ZaloSender/releases/download/v1.10.1/ZaloSender_v1.10.1.zip",
+  "notes": "Phiên bản v1.10.1\n- Thử nghiệm quy trình phát hành và cập nhật tự động. Không thay đổi chức năng.",
+  "required": false,
+  "date": "05/11/2026"
+ },
+ "sig": "XTjj42NY9HnsD7lPd5VbzotEMDI6jT1CtQluh0auS8vFHXfQIIKDySGz9YrcQgqHhSoFACJ7Y1NkDd5vAFpTBg=="
+}
