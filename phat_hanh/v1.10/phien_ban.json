@@ -1,0 +1,13 @@
+{
+ "data": {
+  "version": "1.10",
+  "file": "ZaloSender_v1.10.zip",
+  "size": 227411,
+  "sha256": "65e30eecae359880dc9c9a1abf414343ddc6096c4d7e9f0e6ec47bf23b44d7a7",
+  "url": "https://github.com/NCTNCHQ/ZaloSender/releases/download/v1.10/ZaloSender_v1.10.zip",
+  "notes": "Phiên bản v1.10 – Cập nhật qua GitHub\n- Tự kiểm tra và cài phiên bản mới (có chữ ký số, tự sao lưu và quay về bản cũ nếu lỗi)\n- Nút \"Giới thiệu & Hỗ trợ\" nổi bật hơn, thêm thông tin tác giả và nút gửi email hỗ trợ / xin Key",
+  "required": false,
+  "date": "05/11/2026"
+ },
+ "sig": "XlzF5SIa0QALlIpCZdvY3qJfG8wQ68ARIsm2ZpCzoWmcU0mfbD7sPCv9JUtxTJYFXD+epJqT39gyHJmwuIuYAg=="
+}

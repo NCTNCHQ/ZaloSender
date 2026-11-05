@@ -1,0 +1,16 @@
+# KHÔNG BAO GIỜ đưa khóa bí mật và dữ liệu khách lên GitHub
+*.pem
+so_key_da_cap.csv
+__pycache__/
+*.pyc
+ban_quyen.json
+cai_dat_ung_dung.json
+ghep_nhom.json
+mau_tin_nhan.json
+nhom_zalo.json
+ban_be_zalo.json
+zalo_profile/
+bo_nho_dem/
+ket_qua/
+chan_doan/
+loi.txt
