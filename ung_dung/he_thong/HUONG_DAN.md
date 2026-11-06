@@ -1,4 +1,6 @@
-# Hướng dẫn: Gửi tin nhắn Zalo tự động – v1.10.1
+# Hướng dẫn: Gửi tin nhắn Zalo tự động – v1.11
+
+> Bản dễ đọc có hình minh họa: mở file **`HUONG DAN SU DUNG.html`** ở thư mục cài.
 
 Tác giả: **Nguyễn Công Trung** — Congtrung127@gmail.com
 
@@ -8,8 +10,18 @@ Tác giả: **Nguyễn Công Trung** — Congtrung127@gmail.com
 - Dữ liệu và Key PRO được giữ nguyên. Nếu bản mới lỗi, ứng dụng tự quay về bản cũ.
 - Các bản phát hành: https://github.com/NCTNCHQ/ZaloSender/releases
 
+## 📑 Gửi công nợ theo file của kế toán (v1.11)
+- Chọn file **Tổng hợp công nợ phải thu khách hàng**. Ứng dụng chỉ dùng 3 cột: **Mã khách hàng**, **Dư Nợ cuối kỳ (Số tiền)**, **Số Dropbox**. Cột tên khách chỉ để hiển thị.
+- Ứng dụng tự bỏ các dòng tiêu đề công ty và dòng "Tổng cộng". **Đến ngày** được lấy từ dòng "Từ ngày … đến ngày …".
+- Chỉ hiện và tự tích **khách còn nợ** (số tiền > 0). Ô **"Hiện cả khách đã hết nợ"** dùng để xem tất cả.
+- **Ghép nhóm theo Số Dropbox**: đúng mã và chỉ có 1 nhóm thì tự ghép. Nhiều nhóm cùng mã, hoặc cùng số nhưng khác đuôi (rs/ns/ms), thì bạn chọn 1 lần ở **🔗 Ghép Zalo** và ứng dụng ghi nhớ.
+- **Nhóm có chữ "Xử lý" là nhóm nội bộ: không bao giờ ghép, không bao giờ gửi.** Tin đi vào nhóm "Kế toán" của khách.
+- **PDF** đặt tên theo "Số Dropbox + tên công ty", ví dụ `12. An Bình Xanh.pdf`. File chưa chắc chắn thì chọn tay ở **🔗 Ghép Zalo → Chọn file PDF...** (được ghi nhớ).
+- Mẫu tin có sẵn **"AONE – Công nợ"** với trường **{Đến ngày}** và **{Số tiền}**. Bản PRO: bấm chuột phải vào khách để chọn **mẫu tin riêng** cho khách đó.
+- Nút **📤 DS cần xử lý** xuất file Excel gồm các khách chưa gửi được và lý do, để gửi kế toán.
+
 ## 🔑 Bản Standard và bản PRO
-- Cài đặt xong, ứng dụng chạy ở bản **Standard**. Tiêu đề cửa sổ ghi "Standard v1.9".
+- Cài đặt xong, ứng dụng chạy ở bản **Standard**. Tiêu đề cửa sổ ghi "Standard v<số phiên bản>".
 - **Nâng cấp PRO:**
   1. Bấm nút vàng **"⭐ Nâng cấp PRO"** ở góc trên.
   2. Bấm **"📋 Sao chép mã máy"** và gửi **Mã máy** (dạng `ZS-XXXX-XXXX-XXXX`) cho nhà cung cấp.
@@ -94,13 +106,14 @@ Bấm **chuột phải** vào bảng, hoặc bấm nút **"☰ Sắp xếp / L�
 
 
 ## 1. Cài đặt (làm 1 lần)
-1. Giải nén `ZaloSender_v1.3.zip` vào một thư mục cố định, ví dụ `D:\ZaloSender`.
+1. Giải nén file zip vào một thư mục cố định, **tên không dấu**, ví dụ `D:\ZaloSender`.
    **Đừng để trong thư mục Downloads rồi xóa**: biểu tượng trên Desktop trỏ vào thư mục này.
-2. Bấm đúp **`CAI_DAT.bat`**:
-   - **Chưa có Python**: trang https://www.python.org/downloads/ sẽ tự mở. Tải và cài Python, **nhớ tích ô "Add Python to PATH"** ở cửa sổ cài đặt đầu tiên. Cài xong, bấm đúp lại `CAI_DAT.bat`.
+2. Trong thư mục chỉ có 3 file và thư mục `he_thong`. Bấm đúp **`1-CAI DAT (bam dup vao day).bat`**:
+   - Cửa sổ cài màu xanh chạy lần lượt **BƯỚC 1/4 → 4/4**, xong thì báo **✅ CÀI ĐẶT XONG!**
+   - **Chưa có Python** (cửa sổ màu đỏ): trang https://www.python.org/downloads/ sẽ tự mở. Cài Python, **nhớ tích ô "Add Python to PATH"**, rồi bấm đúp lại file cài.
    - **Chưa có Google Chrome**: trang https://www.google.com/chrome/ sẽ tự mở. Cài Chrome xong, quay lại cửa sổ cài đặt và nhấn Enter.
-   - Trình cài đặt tự cài thư viện và tạo biểu tượng **"Gửi tin Zalo"** trên Desktop.
-3. Từ đó về sau, chỉ cần bấm biểu tượng **"Gửi tin Zalo"** trên Desktop. Nếu biểu tượng không mở được, dùng file `chay_ung_dung.bat`: file này hiện cửa sổ đen kèm thông báo lỗi để dễ kiểm tra.
+3. Từ đó về sau, chỉ cần bấm biểu tượng **"Gửi tin Zalo"** trên Desktop. Nếu biểu tượng không mở được, dùng **`2-MO UNG DUNG.bat`**: file này hiện cửa sổ kèm thông báo lỗi để dễ kiểm tra.
+4. Máy đã cài bản cũ và cập nhật qua nút **⬇ Cập nhật ngay** thì giữ nguyên cách mở cũ, không cần cài lại.
 
 ## 2. Bước 1 – Chọn người nhận
 Có 2 thẻ. Bạn chọn người nhận ở một thẻ hoặc cả hai.
@@ -139,8 +152,8 @@ Bấm **"Tiếp tục ➜ Bước 2"**.
 6. Kết quả được lưu ở thư mục `ket_qua\`, dạng file CSV, mở được bằng Excel.
 
 ## 4. Thử nghiệm với dữ liệu mẫu
-- `mau_thanh_toan.xlsx`: 3 khách mẫu.
-- `pdf_mau\`: PDF của khách mẫu A và B. Khách C **cố ý không có PDF** để bạn thấy ứng dụng bỏ qua.
+- `he_thong\mau\mau_thanh_toan.xlsx`: 3 khách mẫu.
+- `he_thong\mau\pdf_mau\`: PDF của khách mẫu A và B. Khách C **cố ý không có PDF** để bạn thấy ứng dụng bỏ qua.
 - Muốn thử gửi thật: đổi tên khách trong file mẫu thành **tên một nhóm thử** của bạn, và đổi tên file PDF cho khớp.
 
 **Thứ tự thử nghiệm nên làm:**
@@ -174,7 +187,7 @@ Hãy gửi 2 file này cho người hỗ trợ để sửa chính xác. Các fil
 
 ## 8. Cập nhật lên phiên bản mới
 1. Giải nén bản mới (đè lên thư mục cũ hoặc thư mục mới đều được). Từ v1.9.1 dữ liệu nằm ở `%APPDATA%\ZaloSender` nên luôn được giữ. Với bản cũ hơn, những thứ sau vẫn được giữ: thông tin đăng nhập Zalo (`zalo_profile\`), danh sách nhóm, cài đặt (`cai_dat_ung_dung.json`: file Excel, thư mục PDF, mẫu tin nhắn), **bộ nhớ đệm** (`bo_nho_dem\`: trạng thái đã gửi của từng tháng), **ghép nhóm đã xác nhận** (`ghep_nhom.json`), **mẫu tin nhắn** (`mau_tin_nhan.json`), danh sách bạn bè (`ban_be_zalo.json`), **Key PRO đã kích hoạt** (`ban_quyen.json`) và báo cáo cũ.
-2. Chạy lại `CAI_DAT.bat` để cập nhật biểu tượng.
+2. Chạy lại `1-CAI DAT (bam dup vao day).bat` để cập nhật biểu tượng.
 
 ## 9. Khi Zalo đổi giao diện (dành cho người kỹ thuật)
 Nếu ứng dụng báo không tìm thấy nút hoặc ô nào đó, hãy thêm bộ chọn CSS mới vào `config.json`, mục `"selectors"`. Ví dụ:

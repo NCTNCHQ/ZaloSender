@@ -125,6 +125,14 @@ def main():
                 return ""
         need_pip = req(new_root) != req(a.app)
         copy_tree(new_root, a.app)
+        # v1.11: cấu trúc mới (thư mục he_thong) -> chép thêm các file ở thư mục gốc (file .bat, hướng dẫn)
+        zip_root = os.path.dirname(new_root)
+        if os.path.basename(new_root) == "he_thong" and os.path.basename(a.app) == "he_thong":
+            parent = os.path.dirname(a.app)
+            for fn in os.listdir(zip_root):
+                src = os.path.join(zip_root, fn)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(parent, fn))
         log("Đã chép bản mới")
         if need_pip:
             log("Đang cài thư viện mới...")

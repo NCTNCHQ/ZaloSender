@@ -67,56 +67,79 @@ def create_shortcut(pyw, icon=None):
     return False, err
 
 
+# v1.11: cửa sổ cài đặt có màu, các bước rõ ràng
+if sys.platform.startswith("win"):
+    os.system("")  # bật màu (ANSI) cho cửa sổ cmd trên Windows 10/11
+G, R, Y, C, B, W, X = "\033[92m", "\033[91m", "\033[93m", "\033[96m", "\033[1m", "\033[97m", "\033[0m"
+
+
 def step(n, text):
-    print(f"\n[{n}/4] {text}")
+    print(f"\n{C}{B}  BƯỚC {n}/4 ▸ {text}{X}")
+
+
+def ok(text):
+    print(f"{G}     ✔ {text}{X}")
+
+
+def bad(text):
+    print(f"{R}     ✖ {text}{X}")
+
+
+def warn(text):
+    print(f"{Y}     ⚠ {text}{X}")
 
 
 def main():
-    print("=" * 60)
-    print(f"  CÀI ĐẶT: {APP_NAME} – v{APP_VERSION}")
-    print("=" * 60)
+    line = "═" * 62
+    print(f"{B}{W}{line}")
+    print(f"     CÀI ĐẶT ỨNG DỤNG: {APP_NAME.upper()}")
+    print(f"     Phiên bản v{APP_VERSION}   •   Tác giả: Nguyễn Công Trung")
+    print(f"{line}{X}")
+    print("  Cửa sổ này sẽ tự làm 4 bước. Bạn chỉ cần làm theo chữ màu VÀNG (nếu có).")
 
-    step(1, "Kiểm tra Python...")
-    print(f"   Python {sys.version.split()[0]} — OK")
+    step(1, "Kiểm tra Python")
     try:
         import tkinter  # noqa: F401
     except ImportError:
-        print("   ❌ Python thiếu thành phần 'tcl/tk'. Hãy cài lại Python từ python.org (để mặc định các tùy chọn).")
+        bad("Python thiếu thành phần 'tcl/tk'. Hãy cài lại Python từ python.org (để mặc định các tùy chọn).")
         return 1
+    ok(f"Python {sys.version.split()[0]}")
 
-    step(2, "Kiểm tra Google Chrome...")
+    step(2, "Kiểm tra trình duyệt Google Chrome")
     while not find_chrome():
-        print("   ❌ Chưa có Google Chrome. Đang mở trang tải Chrome:", CHROME_URL)
+        bad("Máy chưa có Google Chrome. Đang mở trang tải Chrome: " + CHROME_URL)
         webbrowser.open(CHROME_URL)
-        ans = input("   Cài Chrome xong thì nhấn Enter để kiểm tra lại (gõ B rồi Enter để bỏ qua): ").strip().lower()
+        ans = input(f"{Y}     ⚠ Cài Chrome xong thì nhấn ENTER để kiểm tra lại (gõ B rồi Enter để bỏ qua): {X}").strip().lower()
         if ans == "b":
-            print("   ⚠ Bỏ qua. Ứng dụng sẽ không gửi được tin khi chưa có Chrome.")
+            warn("Đã bỏ qua. Ứng dụng sẽ KHÔNG gửi được tin khi chưa có Chrome.")
             break
     else:
-        print("   Google Chrome — OK")
+        ok("Đã có Google Chrome")
 
-    step(3, "Cài thư viện (cần Internet, có thể mất vài phút)...")
+    step(3, "Cài thư viện cần thiết (cần Internet, có thể mất vài phút — vui lòng chờ)")
     r = subprocess.call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q",
                          "-r", os.path.join(BASE, "requirements.txt")])
     if r != 0:
-        print("   ❌ Cài thư viện thất bại. Kiểm tra kết nối Internet rồi chạy lại CAI_DAT.bat.")
+        bad("Cài thư viện thất bại. Kiểm tra Internet rồi bấm đúp lại file  1-CAI DAT (bam dup vao day).")
         return 1
-    print("   Thư viện — OK")
+    ok("Đã cài đủ thư viện")
 
-    step(4, "Tạo biểu tượng trên Desktop...")
+    step(4, "Tạo biểu tượng trên màn hình Desktop")
     pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     if not os.path.isfile(pyw):
         pyw = sys.executable
-
-    ok, where = create_shortcut(pyw)
-    if ok:
-        print(f"   Đã tạo biểu tượng '{where}' trên Desktop — OK")
+    done, where = create_shortcut(pyw)
+    if done:
+        ok(f"Đã tạo biểu tượng  «{where}»  trên Desktop")
     else:
-        print("   ⚠ Không tạo được biểu tượng:", where)
-        print("     Bạn vẫn mở ứng dụng bằng file chay_ung_dung.bat")
+        warn(f"Không tạo được biểu tượng ({where}).")
+        warn("Bạn vẫn mở ứng dụng bằng file  2-MO UNG DUNG  trong thư mục cài.")
 
-    print("\n✅ CÀI ĐẶT HOÀN TẤT!")
-    if input("Mở ứng dụng ngay bây giờ? (C/K): ").strip().lower() in ("c", "co", "có", "y", ""):
+    print(f"\n{G}{B}{line}")
+    print("     ✅  CÀI ĐẶT XONG!")
+    print("     Từ nay: bấm đúp biểu tượng  «Gửi tin Zalo»  trên Desktop để dùng.")
+    print(f"{line}{X}")
+    if input("\n  Mở ứng dụng ngay bây giờ? (C = có / K = không): ").strip().lower() in ("c", "co", "có", "y", ""):
         subprocess.Popen([pyw, os.path.join(BASE, "app.py")], cwd=BASE)
     return 0
 

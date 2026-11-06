@@ -1,4 +1,5 @@
 """Các hàm xử lý dữ liệu: đọc file khách hàng, nhận diện cột, chuẩn hóa SĐT, ghép nội dung tin nhắn."""
+import functools
 import os
 import re
 import unicodedata
@@ -18,29 +19,190 @@ def strip_accents(text: str) -> str:
     return text.replace("đ", "d").replace("Đ", "D").lower().strip()
 
 
-def load_customers(path: str) -> pd.DataFrame:
-    """Đọc file .xlsx / .xls / .csv, giữ mọi giá trị ở dạng chuỗi (không mất số 0 đầu SĐT)."""
+def _cell_text(v):
+    """Giá trị ô -> chuỗi: 5000000.0 -> '5000000', 275.2 -> '275.2', ngày -> dd/mm/yyyy."""
+    import datetime as _d
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else ("%.10g" % v)
+    if isinstance(v, (_d.datetime, _d.date)):
+        return v.strftime("%d/%m/%Y")
+    return str(v).strip()
+
+
+_TOTAL_WORDS = {"tong cong", "tong", "cong", "total"}
+
+
+def _read_matrix(path, sheet=None):
+    """Trả về (danh_sách_sheet, tên_sheet, ma_trận_ô, tập_ô_gộp_dọc[(hàng,cột)->hàng_cuối])."""
     lower = path.lower()
+    if lower.endswith(".xlsx") or lower.endswith(".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(path, data_only=True)  # đọc GIÁ TRỊ đã tính (kể cả ô dùng công thức)
+        names = wb.sheetnames
+        ws = wb[sheet] if sheet in names else wb.worksheets[0]
+        mat = [[_cell_text(v) for v in row] for row in ws.iter_rows(values_only=True)]
+        merged = {}
+        for rng in ws.merged_cells.ranges:
+            for c in range(rng.min_col, rng.max_col + 1):
+                merged[(rng.min_row - 1, c - 1)] = (rng.max_row - 1, rng.min_col - 1)
+        return names, ws.title, mat, merged
     if lower.endswith(".csv"):
         last_err = None
         for enc in ("utf-8-sig", "cp1258", "cp1252"):
             try:
-                df = pd.read_csv(path, dtype=str, encoding=enc, sep=None, engine="python")
+                df = pd.read_csv(path, dtype=str, encoding=enc, sep=None, engine="python", header=None)
                 break
             except UnicodeDecodeError as e:
                 last_err = e
         else:
             raise last_err
-    else:
-        df = pd.read_excel(path, dtype=str)
-    df = df.fillna("")
-    df.columns = [str(c).strip() for c in df.columns]
-    df = df[[c for c in df.columns if not c.lower().startswith("unnamed")] or df.columns]
-    # bỏ dòng trống hoàn toàn
-    df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)].reset_index(drop=True)
-    for c in df.columns:
-        df[c] = df[c].astype(str).str.strip()
-    return df
+        return ["CSV"], "CSV", [[_cell_text(v) if str(v) != "nan" else "" for v in r] for r in df.values], {}
+    xls = pd.ExcelFile(path)
+    name = sheet if sheet in xls.sheet_names else xls.sheet_names[0]
+    df = pd.read_excel(path, sheet_name=name, header=None, dtype=object)
+    mat = [[_cell_text(None if (isinstance(v, float) and v != v) else v) for v in r] for r in df.values]
+    return xls.sheet_names, name, mat, {}
+
+
+def _is_num(s):
+    return bool(re.fullmatch(r"-?[\d.,]+", str(s).strip())) if str(s).strip() else False
+
+
+def _find_header(mat, merged):
+    """Dòng tên cột = dòng đầu tiên có >= 2 ô chữ và chiếm >= 60% độ rộng dữ liệu bên dưới."""
+    width = max((sum(1 for v in r if v) for r in mat[:60]), default=0)
+    for i, row in enumerate(mat[:40]):
+        texts = [v for v in row if v and not _is_num(v)]
+        if len(texts) < 2:
+            continue
+        below = max((sum(1 for v in r if v) for r in mat[i + 1:i + 21]), default=0)
+        if len(texts) >= 0.6 * max(below, 1) and len(texts) >= 0.4 * width:
+            return i
+    return 0
+
+
+def load_table(path, sheet=None):
+    """v1.11: đọc file khách hàng / file công nợ của kế toán.
+    - Tự tìm dòng tên cột (bỏ các dòng tiêu đề công ty phía trên), gộp tiêu đề 2 dòng (ô gộp dọc).
+    - Bỏ dòng trống và dòng 'Tổng cộng'.
+    - Lấy 'Từ ngày … đến ngày …' phía trên bảng.
+    Trả về (DataFrame toàn chuỗi, meta)."""
+    sheets, used, mat, merged = _read_matrix(path, sheet)
+    if not mat:
+        return pd.DataFrame(), {"sheets": sheets, "sheet": used}
+    ncol = max(len(r) for r in mat)
+    mat = [list(r) + [""] * (ncol - len(r)) for r in mat]
+    h = _find_header(mat, merged)
+    top = mat[h]
+    two_rows = any(r == h and end == h + 1 for (r, c), (end, _) in merged.items()) and h + 1 < len(mat)
+    if not two_rows and h + 1 < len(mat):  # tiêu đề phụ không gộp ô (vd: dòng chỉ có 'Số tiền' dưới các cột)
+        nxt = [v.strip() for v in mat[h + 1]]
+        filled = [v for v in nxt if v]
+        two_rows = (len(filled) >= 2 and not nxt[0] and not any(re.search(r"\d", v) for v in filled)
+                    and all(top[c].strip() for c, v in enumerate(nxt) if v))
+    sub = mat[h + 1] if two_rows else [""] * ncol
+    # ô gộp ngang ở dòng tiêu đề: chép tên sang các cột bên phải
+    for (r, c), (end, c0) in merged.items():
+        if r == h and c != c0 and not top[c]:
+            top[c] = top[c0]
+    cols, seen = [], {}
+    for c in range(ncol):
+        t, s = top[c].strip(), sub[c].strip()
+        name = f"{t} - {s}" if t and s and s != t else (t or s)
+        if not name:
+            continue
+        k = name
+        if k in seen:
+            seen[k] += 1
+            k = f"{name} ({seen[name]})"
+        else:
+            seen[k] = 1
+        cols.append((c, k))
+    start = h + (2 if two_rows else 1)
+    rows = []
+    for r in mat[start:]:
+        vals = [r[c].strip() for c, _ in cols]
+        if not any(vals):
+            continue
+        first = " ".join(strip_accents(v) for v in vals[:2] if v)
+        if first in _TOTAL_WORDS or strip_accents(vals[0]) in _TOTAL_WORDS:
+            continue
+        rows.append(vals)
+    df = pd.DataFrame(rows, columns=[k for _, k in cols]).fillna("")
+    meta = {"sheets": sheets, "sheet": used, "header_row": h + 1}
+    head_text = " ".join(" ".join(v for v in r if v) for r in mat[:h])
+    m = re.search(r"(tu ngay)\s*(\d{1,2}/\d{1,2}/\d{4})", strip_accents(head_text))
+    m2 = re.search(r"(den ngay)\s*(\d{1,2}/\d{1,2}/\d{4})", strip_accents(head_text))
+    if m:
+        meta["tu_ngay"] = m.group(2)
+    if m2:
+        meta["den_ngay"] = m2.group(2)
+    return df, meta
+
+
+def load_customers(path: str) -> pd.DataFrame:
+    """Đọc file .xlsx / .xls / .csv, giữ mọi giá trị ở dạng chuỗi (không mất số 0 đầu SĐT)."""
+    return load_table(path)[0]
+
+
+# ---- v1.11: Số Dropbox chuẩn hóa ----
+_SUFFIXES = ("rs", "ns", "ms", "luka")
+
+
+def parse_code(raw):
+    if isinstance(raw, str):
+        return _parse_code_str(raw)
+    return _parse_code(raw)
+
+
+@functools.lru_cache(maxsize=100000)
+def _parse_code_str(raw):
+    return _parse_code(raw)
+
+
+def _parse_code(raw):
+    """'88.rs' / '88. Rs.' / '88rs' -> ('88','rs',''); '423' -> ('423','',''); '23. Rs. -01' -> ('23','rs','01');
+    '275.2' -> ('275.2','',''); '152-01. Ns' -> ('152-01','ns',''). Không có mã -> None."""
+    if raw is None:
+        return None
+    if isinstance(raw, float):
+        raw = ("%.10g" % raw)
+    s = strip_accents(str(raw)).strip()
+    if s in ("", "#n/a", "0", "nan", "none"):
+        return None
+    m = re.match(r"^\(?(\d+(?:[.\-]\d+)*)", s)
+    if not m:
+        return None
+    so, rest = m.group(1), s[m.end():]
+    m2 = re.match(r"^[\s.,\-_]*(" + "|".join(_SUFFIXES) + r")(?![a-z])", rest)
+    ky = m2.group(1) if m2 else ""
+    rest2 = rest[m2.end():] if m2 else rest
+    m3 = re.match(r"^[\s.,\-_]*-\s*(\d{1,2})(?!\d)", rest2) or (re.match(r"^[\s.,_]*(\d{1,2})\b", rest2) if m2 else None)
+    return (so, ky, m3.group(1).zfill(2) if m3 else "")
+
+
+def code_text(p):
+    return "" if not p else p[0] + (p[1] and p[1]) + (("-" + p[2]) if p[2] else "")
+
+
+def is_internal_group(name, keywords=("xu ly",)):
+    """Nhóm nội bộ (vd có chữ 'Xử lý') — không bao giờ ghép / gửi tin."""
+    n = strip_accents(name)
+    return any(k and k in n for k in keywords)
+
+
+def parse_amount(v):
+    s = str(v or "").strip().replace(" ", "")
+    if not s:
+        return None
+    if re.fullmatch(r"-?\d+(\.\d+)?", s):
+        return float(s)
+    s2 = s.replace(".", "").replace(",", "")
+    return float(s2) if re.fullmatch(r"-?\d+", s2) else None
 
 
 def _guess(columns, keywords, exclude=()):
@@ -67,6 +229,21 @@ def guess_zalo_name_column(columns):
 
 def guess_name_column(columns, exclude=()):
     return _guess(columns, NAME_KEYWORDS, exclude=exclude)
+
+
+def guess_key_column(columns):
+    return _guess(columns, ["ma khach hang", "ma khach", "ma kh", "ma so thue", "mst"])
+
+
+def guess_code_column(columns):
+    return _guess(columns, ["so dropbox", "dropbox", "so drop", "drop"])
+
+
+def guess_amount_column(columns):
+    for c in columns:
+        if "du no cuoi ky" in strip_accents(c):
+            return c
+    return _guess(columns, ["so tien", "thanh tien", "tien", "cong no", "du no"])
 
 
 def guess_pdf_column(columns):
@@ -288,7 +465,9 @@ class MessageBuffer:
     @staticmethod
     def key_of(t: dict) -> str:
         # v1.7: khóa theo TÊN TRONG EXCEL (không đổi khi ghép lại nhóm Zalo)
-        return norm_name(t.get("excel_name") or t.get("label") or t.get("search_name") or t.get("phone") or "")
+        # v1.11: ưu tiên Mã khách hàng (MST) — không đổi khi đổi tên / Số Dropbox
+        return norm_name(t.get("cust_key") or t.get("excel_name") or t.get("label") or t.get("search_name")
+                         or t.get("phone") or "")
 
     def save(self):
         with self.lock:
@@ -435,6 +614,7 @@ def _company_tokens(name: str):
     return s.split()
 
 
+@functools.lru_cache(maxsize=300000)
 def name_similarity(a: str, b: str) -> float:
     """Độ giống 0..1 giữa 2 tên công ty (đã bỏ mã Dropbox và các chữ chung như Công ty, TNHH...)."""
     ta, tb = _company_tokens(a), _company_tokens(b)
@@ -486,30 +666,41 @@ class GroupMap:
             self.save()
 
 
-def match_group(excel_name: str, group_names, gmap: "GroupMap" = None, types: dict = None) -> dict:
+def match_group(excel_name: str, group_names, gmap: "GroupMap" = None, types: dict = None,
+                code=False, map_key=None) -> dict:
     """Tìm nhóm Zalo cho 1 khách. Chỉ tự ghép khi CHẮC CHẮN (trùng đúng 1 nhóm);
     còn lại trả về gợi ý / danh sách ứng viên để người dùng xác nhận."""
-    names = list(group_names)
-    norm_count = Counter(norm_name(g) for g in names)
-    ranked = sorted(names, key=lambda g: -name_similarity(excel_name, g))
+    names = tuple(group_names)
+    idx = _group_index(names)
+    norm_count = idx["norm_count"]
 
+    class _Lazy:  # chỉ tính độ giống tên khi thật sự cần (danh sách nhóm có thể rất dài)
+        val = None
+
+        def __getitem__(self, k):
+            if self.val is None:
+                self.val = sorted(names, key=lambda g: -name_similarity(excel_name or "", g))
+            return self.val[k]
+    ranked = _Lazy()
     types = types or {}
 
     def res(status, zalo=None, candidates=None, score=None, note=""):
-        cand = candidates if candidates is not None else ranked[:15]
+        cand = candidates if candidates is not None else ([] if status in MATCH_OK else ranked[:15])
         return {"status": status, "zalo": zalo, "candidates": cand, "score": score, "note": note,
                 "type": types.get(norm_name(zalo), "nhom") if zalo else None}
 
-    # 1. đã được người dùng xác nhận
-    saved = gmap.get(excel_name) if gmap else None
+    # 1. đã được người dùng xác nhận (v1.11: khóa theo Mã khách hàng nếu có)
+    saved = gmap.get(map_key or excel_name) if gmap else None
     if saved and saved.get("zalo"):
         if norm_count.get(norm_name(saved["zalo"]), 0) >= 1:
             return res(MATCH_CONFIRMED, saved["zalo"], note="bạn đã xác nhận " + saved.get("at", ""))
         note = f"nhóm đã xác nhận '{saved['zalo']}' không còn trong danh sách nhóm Zalo"
     else:
         note = ""
+    if code is not False:  # v1.11: chế độ file công nợ — ghép theo Số Dropbox
+        return _match_by_code(code, excel_name, idx, norm_count, ranked, res, note)
     # 2. trùng khớp hoàn toàn cả tên
-    exact = [g for g in names if norm_name(g) == norm_name(excel_name)]
+    exact = idx["by_norm"].get(norm_name(excel_name), [])
     if len(exact) == 1:
         return res(MATCH_NAME, exact[0], note="trùng tên")
     if len(exact) > 1:
@@ -517,7 +708,7 @@ def match_group(excel_name: str, group_names, gmap: "GroupMap" = None, types: di
     # 3. mã Dropbox
     code = dropbox_code(excel_name)
     if code:
-        same = [g for g in names if dropbox_code(g) == code]
+        same = list(idx["by_dcode"].get(code, []))
         if len(same) == 1 and norm_count[norm_name(same[0])] == 1:
             return res(MATCH_CODE, same[0], note=f"mã {code}")
         if len(same) > 1:
@@ -527,13 +718,13 @@ def match_group(excel_name: str, group_names, gmap: "GroupMap" = None, types: di
     # 4. tên công ty (đã bỏ mã) trùng khớp hoàn toàn
     comp = norm_name(strip_code(excel_name))
     if comp:
-        same = [g for g in names if norm_name(strip_code(g)) == comp]
+        same = list(idx["by_comp"].get(comp, []))
         if len(same) == 1 and norm_count[norm_name(same[0])] == 1:
             return res(MATCH_NAME, same[0], note="trùng tên công ty")
         if len(same) > 1:
             return res(MATCH_AMBIGUOUS, None, same, note=f"{len(same)} nhóm trùng tên công ty")
     # 5. gần giống -> chỉ gợi ý
-    if ranked:
+    if names:
         best = ranked[0]
         sc = name_similarity(excel_name, best)
         if sc >= 0.6:
@@ -585,7 +776,7 @@ class TemplateStore:
 
     PATH = _dd.path("mau_tin_nhan.json")
 
-    def __init__(self, factory_text: str, factory_name: str = "AONE"):
+    def __init__(self, factory_text: str, factory_name: str = "AONE", builtins: dict = None):
         try:
             with open(self.PATH, encoding="utf-8") as f:
                 d = _json.load(f)
@@ -600,11 +791,30 @@ class TemplateStore:
             self.save()
         if self.default not in self.templates:
             self.default = next(iter(self.templates))
+        # v1.11: thêm các mẫu có sẵn MỘT LẦN (người dùng xóa đi thì không thêm lại)
+        added = set(self._added())
+        for name, text in (builtins or {}).items():
+            if name not in added:
+                self.templates.setdefault(name, text)
+                added.add(name)
+                self._builtins_added = sorted(added)
+                self.save()
+
+    def _added(self):
+        if hasattr(self, "_builtins_added"):
+            return self._builtins_added
+        try:
+            with open(self.PATH, encoding="utf-8") as f:
+                self._builtins_added = _json.load(f).get("builtins_added", [])
+        except Exception:
+            self._builtins_added = []
+        return self._builtins_added
 
     def save(self):
         tmp = self.PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            _json.dump({"default": self.default, "templates": self.templates}, f, ensure_ascii=False, indent=1)
+            _json.dump({"default": self.default, "templates": self.templates,
+                        "builtins_added": getattr(self, "_builtins_added", [])}, f, ensure_ascii=False, indent=1)
         os.replace(tmp, self.PATH)
 
     def names(self):
@@ -634,3 +844,85 @@ class TemplateStore:
     def set_default(self, name):
         self.default = name
         self.save()
+
+
+@functools.lru_cache(maxsize=8)
+def _group_index(names):
+    """Bảng tra lập MỘT LẦN cho cả danh sách nhóm (thay vì quét lại cho từng khách)."""
+    by_norm, by_dcode, by_comp, by_num = {}, {}, {}, {}
+    for g in names:
+        by_norm.setdefault(norm_name(g), []).append(g)
+        c = dropbox_code(g)
+        if c:
+            by_dcode.setdefault(c, []).append(g)
+        by_comp.setdefault(norm_name(strip_code(g)), []).append(g)
+        q = parse_code(g)
+        if q:
+            by_num.setdefault(q[0], []).append((g, q))
+    return {"norm_count": Counter(norm_name(g) for g in names), "by_norm": by_norm, "by_dcode": by_dcode,
+            "by_comp": by_comp, "by_num": by_num}
+
+
+def _match_by_code(raw_code, excel_name, idx, norm_count, ranked, res, note):
+    """Quy tắc ghép theo Số Dropbox (đã thử trên dữ liệu thật của A-One):
+    - trùng số + ký hiệu (+ phần phụ) với đúng 1 nhóm  -> TỰ GHÉP (có cảnh báo nếu tên công ty khác nhiều)
+    - nhiều nhóm trùng mã                               -> người dùng CHỌN
+    - Excel chỉ có số, đúng 1 nhóm cùng số              -> GỢI Ý, người dùng xác nhận
+    - cùng số nhưng khác ký hiệu                        -> người dùng CHỌN tay hoặc bỏ qua (không gợi ý)
+    - không có mã / không có nhóm                       -> KHÔNG gửi"""
+    p = parse_code(raw_code)
+    if not p:
+        return res(MATCH_NONE, None, [], note=(note + "; " if note else "") + "Excel không có Số Dropbox")
+    parsed = idx["by_num"].get(p[0], [])
+    exact = [g for g, q in parsed if q == p]
+    same_num = [g for g, q in parsed if q != p]
+    code_s = code_text(p)
+    if len(exact) == 1 and norm_count[norm_name(exact[0])] == 1:
+        r = res(MATCH_CODE, exact[0], note=f"mã {code_s}")
+        sc = name_similarity(excel_name, exact[0]) if excel_name else 1
+        if sc < 0.25:
+            r["warn_name"] = f"tên công ty khác nhiều ({sc:.0%}) — nên kiểm tra Số Dropbox"
+        return r
+    if len(exact) > 1:
+        exact.sort(key=lambda g: -name_similarity(excel_name, g))
+        return res(MATCH_AMBIGUOUS, None, exact + [g for g in same_num if g not in exact],
+                   note=f"{len(exact)} nhóm cùng mã {code_s}")
+    if not p[1] and len(same_num) == 1:
+        return res(MATCH_SUGGEST, same_num[0], same_num, score=name_similarity(excel_name, same_num[0]),
+                   note=f"Excel chỉ có số {p[0]}, nhóm Zalo có thêm ký hiệu")
+    if same_num:
+        same_num.sort(key=lambda g: -name_similarity(excel_name, g))
+        return res(MATCH_AMBIGUOUS, None, same_num, note=f"cùng số {p[0]} nhưng khác ký hiệu — chọn tay hoặc bỏ qua")
+    return res(MATCH_NONE, None, [], note=f"không có nhóm Zalo nào mang mã {code_s}")
+
+
+def pdf_by_code(code_parsed, index):
+    """File PDF có mã Dropbox (ở đầu tên file) TRÙNG HẲN với mã của khách."""
+    if not code_parsed:
+        return []
+    return [path for path in index if parse_code(os.path.basename(path)) == code_parsed]
+
+
+# ---- v1.11: chọn PDF bằng tay (nhớ theo Mã khách hàng) ----
+class PdfMap:
+    PATH = _dd.path("chon_pdf.json")
+
+    def __init__(self):
+        try:
+            with open(self.PATH, encoding="utf-8") as f:
+                self.items = _json.load(f)
+        except Exception:
+            self.items = {}
+
+    def get(self, key):
+        return self.items.get(norm_name(key), [])
+
+    def set(self, key, names):
+        if names:
+            self.items[norm_name(key)] = list(names)
+        else:
+            self.items.pop(norm_name(key), None)
+        tmp = self.PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _json.dump(self.items, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, self.PATH)

@@ -1,0 +1,13 @@
+{
+ "data": {
+  "version": "1.11",
+  "file": "ZaloSender_v1.11.zip",
+  "size": 477355,
+  "sha256": "7596cf65471c4705a0aafc0a8c564c47d5a4396926e2ce1151d76939c4369744",
+  "url": "https://github.com/NCTNCHQ/ZaloSender/releases/download/v1.11/ZaloSender_v1.11.zip",
+  "notes": "• Gửi công nợ theo file \"Tổng hợp công nợ phải thu\" của kế toán: tự đọc Mã KH, Số tiền, Số Dropbox; chỉ tích khách còn nợ.\n• Ghép nhóm Zalo theo Số Dropbox; trường hợp chưa chắc chắn thì bạn chọn 1 lần, ứng dụng ghi nhớ.\n• Nhóm có chữ \"Xử lý\" là nhóm nội bộ: không bao giờ gửi.\n• Mẫu tin \"AONE – Công nợ\" có {Đến ngày} lấy từ file. Nút \"DS cần xử lý\" xuất danh sách gửi kế toán.\n• PRO: chọn mẫu tin riêng cho từng khách (chuột phải).\n• Thư mục cài gọn hơn, có file \"HUONG DAN SU DUNG.html\".",
+  "required": false,
+  "date": "06/11/2026"
+ },
+ "sig": "qzXoz409a1FfZa7UVzUZUc2I3F18g9/3/+bm/bKoIm7XckdW/W3ZAzWbfmBNkBw4eLhJTi8ZXPOZatDq5PT8Dw=="
+}

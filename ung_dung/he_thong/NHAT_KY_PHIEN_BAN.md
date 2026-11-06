@@ -6,6 +6,29 @@ Từ v1.9, ứng dụng có **2 bản**:
 
 Mỗi thay đổi được ghi rõ thuộc **[Cả 2 bản]**, **[Standard]** hay **[PRO]**.
 
+## v1.11 — 06/11/2026
+**[Cả 2 bản] Gửi công nợ theo file của kế toán**
+- Đọc trực tiếp file **"Tổng hợp công nợ phải thu khách hàng"**: tự bỏ các dòng tiêu đề công ty phía trên, gộp tiêu đề 2 dòng ("Dư Nợ cuối kỳ - Số tiền"), bỏ dòng "Tổng cộng", chọn được Sheet.
+- Chỉ dùng các cột **Mã khách hàng**, **Dư Nợ cuối kỳ (Số tiền)**, **Số Dropbox**. Cột tên khách chỉ để hiển thị.
+- Chỉ hiện và tự tích **khách còn nợ** (> 0). Có ô "Hiện cả khách đã hết nợ".
+- **{Đến ngày}** lấy từ dòng "Từ ngày … đến ngày …" của file, sửa được ở Bước 2.
+- **Ghép nhóm theo Số Dropbox chuẩn hóa** (12 / 12rs / 12.Rs / 12 Rs là một mã, nhưng 12rs khác 12ns):
+  - Đúng mã và chỉ có 1 nhóm thì tự ghép.
+  - Nhiều nhóm cùng mã, chỉ có số, hoặc cùng số nhưng khác đuôi thì **người dùng chọn 1 lần**, ứng dụng ghi nhớ.
+  - Gợi ý **⚠ "tên công ty khác nhiều"** khi tên nhóm khác hẳn tên khách (có thể Số Dropbox trong Excel bị sai). Chỉ là gợi ý, không chặn gửi.
+- **Nhóm có chữ "Xử lý" là nhóm nội bộ**: không bao giờ ghép và không bao giờ gửi. Ở thẻ Nhóm Zalo các nhóm này bị khóa 🔒.
+- **PDF theo "Số Dropbox + tên công ty"**. Trường hợp không chắc chắn thì chọn tay ở 🔗 Ghép Zalo (được ghi nhớ, chỉ chọn trong thư mục PDF).
+- Mẫu tin có sẵn **"AONE – Công nợ"** (trường {Đến ngày}, {Số tiền}). Bản Standard được chọn giữa các mẫu có sẵn.
+- Nút **📤 DS cần xử lý**: xuất Excel các khách chưa gửi được kèm lý do, để gửi kế toán.
+- Tăng tốc: bảng 287 khách × 734 nhóm tính lại trong khoảng 0,03 giây (trước đây khoảng 11 giây).
+
+**[PRO]** Bấm chuột phải vào khách để chọn **mẫu tin riêng** cho khách đó. Bảng có thêm cột "Mẫu tin".
+
+**[Cả 2 bản] Thư mục cài gọn và dễ nhận biết**
+- Thư mục gốc chỉ còn: **`1-CAI DAT (bam dup vao day).bat`**, **`2-MO UNG DUNG.bat`**, **`HUONG DAN SU DUNG.html`** (hướng dẫn có hình) và thư mục **`he_thong`**.
+- Cửa sổ cài đặt có màu, ghi rõ **BƯỚC 1/4 → 4/4** và báo **✅ CÀI ĐẶT XONG!** Thiếu Python thì cửa sổ chuyển đỏ và mở trang tải Python.
+- Máy cập nhật từ bản cũ qua nút "Cập nhật ngay" vẫn giữ cách mở cũ (không cần cài lại). Máy cài mới theo cấu trúc này thì các lần cập nhật sau tự chép cả các file ở thư mục gốc.
+
 ## v1.10.1 — 05/11/2026
 **[Cả 2 bản]** Bản thử nghiệm **quy trình phát hành tự động** qua GitHub Actions. Không thay đổi chức năng.
 - Mã nguồn và quy trình phát hành được lưu trên kho GitHub NCTNCHQ/ZaloSender.

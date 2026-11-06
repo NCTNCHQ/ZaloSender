@@ -2,7 +2,7 @@
 
     python cong_cu_tac_gia/dong_goi.py --notes-file co_gi_moi.txt [--required] [--key duong_dan/khoa_bi_mat.pem]
 
-Số phiên bản lấy từ ung_dung/version.py. Cần khoa_bi_mat.pem (KHÔNG có trong kho — tác giả cung cấp).
+Số phiên bản lấy từ ung_dung/he_thong/version.py. Cần khoa_bi_mat.pem (KHÔNG có trong kho — tác giả cung cấp).
 """
 import argparse
 import os
@@ -12,7 +12,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "ung_dung")
-SKIP_DIRS = {"__pycache__", "zalo_profile", "ket_qua", "chan_doan", "bo_nho_dem"}
+SKIP_DIRS = {"__pycache__", "zalo_profile", "ket_qua", "chan_doan", "bo_nho_dem", "anh_huong_dan"}
 SKIP_FILES = {"nhom_zalo.json", "ban_be_zalo.json", "loi.txt", "cai_dat_ung_dung.json", "ghep_nhom.json",
               "mau_tin_nhan.json", "ban_quyen.json", "DU_LIEU_DA_CHUYEN.txt"}
 
@@ -23,7 +23,7 @@ def main():
     ap.add_argument("--required", action="store_true")
     ap.add_argument("--key", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "khoa_bi_mat.pem"))
     a = ap.parse_args()
-    ver = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', open(os.path.join(APP, "version.py"), encoding="utf-8").read()).group(1)
+    ver = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', open(os.path.join(APP, "he_thong", "version.py"), encoding="utf-8").read()).group(1)
     out_dir = os.path.join(ROOT, "phat_hanh", f"v{ver}")
     os.makedirs(out_dir, exist_ok=True)
     zp = os.path.join(out_dir, f"ZaloSender_v{ver}.zip")

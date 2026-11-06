@@ -32,6 +32,8 @@ CHECK, UNCHECK = "☑", "☐"
 NONE = "(không dùng)"
 GROUP_FIELD = "Tên nhóm"
 MONTH_FIELD = "Tháng"
+DATE_FIELD = "Đến ngày"     # v1.11: lấy từ dòng "Từ ngày … đến ngày …" của file công nợ
+AMOUNT_FIELD = "Số tiền"    # v1.11: luôn dùng được {Số tiền} = cột số tiền đã chọn
 DEFAULT_TEMPLATE = """Công ty A-One Kính gửi Quý Khách hàng đề nghị thanh toán phí dịch vụ Tháng {Tháng} và hóa đơn kèm theo.
 Kính đề nghị quý khách hàng thanh toán số tiền trên bằng Chuyển Khoản trong vòng 7 ngày từ khi nhận được hóa đơn
 
@@ -40,6 +42,18 @@ Công Ty TNHH Tư Vấn A-one
 Số TK: 25058788
 Tại Ngân hàng Thương mại cổ phần Kỹ Thương Việt Nam (Techcombank) – Trụ sở vận hành
 Số tiền thanh toán: {Số tiền} VNĐ
+
+Trân Trọng cảm ơn quý khách hàng!"""
+# v1.11: mẫu cho file công nợ của kế toán (số tiền = tổng dư nợ cộng dồn đến ngày lập báo cáo)
+CONG_NO_NAME = "AONE – Công nợ"
+CONG_NO_TEMPLATE = """Công ty A-One kính gửi Quý Khách hàng thông báo công nợ phí dịch vụ tính đến ngày {Đến ngày} và hóa đơn kèm theo.
+Kính đề nghị quý khách hàng thanh toán số tiền trên bằng Chuyển Khoản trong vòng 7 ngày từ khi nhận được hóa đơn
+
+Thông tin chi tiết
+Công Ty TNHH Tư Vấn A-one
+Số TK: 25058788
+Tại Ngân hàng Thương mại cổ phần Kỹ Thương Việt Nam (Techcombank) – Trụ sở vận hành
+Tổng số tiền cần thanh toán: {Số tiền} VNĐ
 
 Trân Trọng cảm ơn quý khách hàng!"""
 
@@ -132,43 +146,53 @@ def setup_style(root):
     return st
 
 
-def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, check_groups, only=None):
+def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, check_groups, only=None,
+                den_ngay="", internal_kw=("xu ly",)):
     """Tính trước cho từng người nhận: nội dung, PDF, kiểm tra nhóm Zalo, lỗi.
     Dùng chung cho Bước 1 (hiện trong bảng), xem trước và Bước 2 (gửi).
     Trả về (plans, các_file_PDF_trong_thư_mục_không_khớp_ai)."""
-    extra = {MONTH_FIELD: (month or "").strip()}
+    extra = {MONTH_FIELD: (month or "").strip(), DATE_FIELD: (den_ngay or "").strip()}
     folder = (folder or "").strip()
     auto_pdf = bool(folder) and not has_pdf_col
     index = core.index_pdf_folder(folder) if auto_pdf else {}
     missing_shared = [p for p in shared_pdfs if not os.path.isfile(p)]
     group_names = [core.norm_name(g["name"]) for g in groups]
     check_groups = check_groups and bool(group_names)
-    key_count = Counter(core.file_key(t["label"] or t["search_name"]) for t in targets)
+    ident = lambda t: core.norm_name(t["cust_key"]) if t.get("cust_key") else core.file_key(t["label"] or t["search_name"])
+    key_count = Counter(ident(t) for t in targets)
     zalo_count = Counter(core.norm_name(t["search_name"]) for t in targets
                          if t["search_name"] and not t["phone"] and t.get("match", {}).get("status", core.MATCH_NAME)
                          in core.MATCH_OK)
-    # PDF: khóa ghép = tên Excel, tên nhóm Zalo, SĐT, mã Dropbox
-    pdf_hits = {}
+    # PDF: file công nợ -> theo Số Dropbox (hoặc file chọn tay); file thường -> tên Excel / nhóm / SĐT / mã
+    pdf_hits, pdf_missing_manual = {}, {}
     if auto_pdf:
         for i, t in enumerate(targets):
-            keys = [t["label"], t.get("excel_name", ""), t["search_name"], t["phone"],
-                    core.dropbox_code(t.get("excel_name") or t["label"])]
-            pdf_hits[i] = core.match_pdfs(dict.fromkeys(k for k in keys if k), index)
+            if t.get("pdf_manual"):
+                found = [os.path.join(folder, n) for n in t["pdf_manual"] if os.path.isfile(os.path.join(folder, n))]
+                pdf_hits[i] = [os.path.abspath(f) for f in found]
+                pdf_missing_manual[i] = [n for n in t["pdf_manual"] if not os.path.isfile(os.path.join(folder, n))]
+            elif "code_parsed" in t:
+                pdf_hits[i] = core.pdf_by_code(t["code_parsed"], index)
+            else:
+                keys = [t["label"], t.get("excel_name", ""), t["search_name"], t["phone"],
+                        core.dropbox_code(t.get("excel_name") or t["label"])]
+                pdf_hits[i] = core.match_pdfs(dict.fromkeys(k for k in keys if k), index)
     pdf_users = Counter(f for fs in pdf_hits.values() for f in fs)
-    fields = list(dict.fromkeys(core._PLACEHOLDER.findall(tpl or "")))
-    # v1.7: tin nhắn nói "kèm theo" mà không có nguồn PDF nào -> không gửi (tránh gửi thiếu hóa đơn)
-    needs_pdf = bool(re.search(r"kèm theo|đính kèm|attached", core.strip_accents(tpl or "")
-                               .replace("kem theo", "kèm theo").replace("dinh kem", "đính kèm")))
     no_pdf_source = not folder and not has_pdf_col and not shared_pdfs
     plans, used = [], set()
     for i, t in enumerate(targets):
         if only is not None and i not in only:
             continue
+        ttpl = t.get("tpl_text") or tpl  # v1.11: mẫu tin riêng cho khách (PRO)
+        fields = list(dict.fromkeys(core._PLACEHOLDER.findall(ttpl or "")))
+        # tin nhắn nói "kèm theo" mà không có nguồn PDF nào -> không gửi (tránh gửi thiếu hóa đơn)
+        needs_pdf = bool(re.search(r"kem theo|dinh kem|attached", core.strip_accents(ttpl or "")))
         zf = {ZALO_FIELD: t["search_name"] or t["label"] or t["phone"]} if lic.is_pro() else {}  # {Tên Zalo}: PRO
         row = core.prepare_row(t["row"], {**extra, **zf})
-        p = {"t": t, "row": row, "msg": core.render_message(tpl, row) if tpl else "",
-             "files": [], "error": "", "zalo": "", "data": ""}
-        p["data"] = "; ".join(f"{m}: {core.render_message('{' + m + '}', row)}" for m in fields if m != MONTH_FIELD)
+        p = {"t": t, "row": row, "msg": core.render_message(ttpl, row) if ttpl else "", "tpl": ttpl,
+             "files": [], "error": "", "zalo": "", "data": "", "warn": ""}
+        p["data"] = "; ".join(f"{m}: {core.render_message('{' + m + '}', row)}" for m in fields
+                              if m not in (MONTH_FIELD, DATE_FIELD))
         errors = []
         if missing_shared:
             errors.append("Thiếu file PDF chung: " + ", ".join(os.path.basename(m) for m in missing_shared))
@@ -179,9 +203,15 @@ def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, c
         if t.get("duplicate"):
             errors.append("Có nhiều nhóm / bạn bè trùng tên này trên Zalo")
         m = t.get("match")
+        if m and m.get("warn_name"):
+            p["warn"] = m["warn_name"]
         if t["phone"]:
             p["zalo"] = "theo SĐT"
-        elif m and m["status"] not in core.MATCH_OK:  # v1.7: chưa ghép được nhóm Zalo
+        elif t["search_name"] and t.get("zalo_type", "nhom") == "nhom" and (not m or m["status"] in core.MATCH_OK) \
+                and core.is_internal_group(t["search_name"], internal_kw):
+            p["zalo"] = "🔒 nhóm nội bộ"
+            errors.append("Nhóm nội bộ (có chữ 'Xử lý') — không gửi")
+        elif m and m["status"] not in core.MATCH_OK:  # chưa ghép được nhóm Zalo
             if m["status"] == core.MATCH_SUGGEST:
                 p["zalo"] = f"⚠ gợi ý: {m['zalo']}"
                 errors.append(f"Chờ bạn xác nhận Zalo (gợi ý '{m['zalo']}', {m['note']}) — bấm '🔗 Ghép Zalo'")
@@ -193,7 +223,8 @@ def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, c
                 errors.append(f"Chưa ghép được nhóm / bạn bè Zalo ({m['note']}) — bấm '🔗 Ghép Zalo'")
         elif t["search_name"] and check_groups:
             c = group_names.count(core.norm_name(t["search_name"]))
-            p["zalo"] = ("✅ " + t["search_name"]) if c == 1 else ("❌ không thấy" if c == 0 else "⚠ trùng tên")
+            p["zalo"] = (("⚠ " if p["warn"] else "✅ ") + t["search_name"]) if c == 1 else \
+                ("❌ không thấy" if c == 0 else "⚠ trùng tên")
             if c == 1 and zalo_count[core.norm_name(t["search_name"])] > 1:
                 errors.append(f"Nhiều khách cùng ghép vào nhóm '{t['search_name']}'")
             if c == 0:
@@ -202,13 +233,15 @@ def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, c
                 errors.append("Có nhiều nhóm / bạn bè trùng tên này trên Zalo")
         elif t["search_name"]:
             p["zalo"] = "tìm khi gửi"
-        if tpl:
+        if ttpl:
             if not extra[MONTH_FIELD] and MONTH_FIELD in fields:
                 errors.append("Chưa nhập Tháng")
-            miss = core.unknown_placeholders(tpl, list(row.keys()))
+            if not extra[DATE_FIELD] and DATE_FIELD in fields:
+                errors.append("Chưa nhập Đến ngày")
+            miss = core.unknown_placeholders(ttpl, list(row.keys()))
             if miss:
                 errors.append("Tin nhắn có trường không có trong Excel: " + ", ".join("{" + m + "}" for m in miss))
-            empty = core.empty_placeholders(tpl, row)
+            empty = core.empty_placeholders(ttpl, row)
             if empty:
                 errors.append("Thiếu dữ liệu: " + ", ".join(empty))
         own = []
@@ -218,10 +251,15 @@ def build_plans(targets, tpl, month, folder, shared_pdfs, has_pdf_col, groups, c
                 errors.append("Thiếu file PDF: " + ", ".join(missing))
         elif auto_pdf and t["kind"] == "Khách hàng":  # nhóm/bạn bè tích trực tiếp: chỉ nhận PDF chung
             own = pdf_hits.get(i, [])
-            if not own:
-                errors.append("Không tìm thấy file PDF trùng tên / mã")
-            elif key_count[core.file_key(t["label"] or t["search_name"])] > 1:
-                errors.append("Có nhiều người nhận trùng tên, không biết PDF của ai")
+            if pdf_missing_manual.get(i):
+                errors.append("Không còn file PDF đã chọn: " + ", ".join(pdf_missing_manual[i])
+                              + " — chọn lại ở '🔗 Ghép Zalo'")
+            elif not own:
+                code = core.code_text(t.get("code_parsed")) if "code_parsed" in t else ""
+                errors.append((f"Không tìm thấy file PDF có mã {code}" if code else
+                               "Không tìm thấy file PDF trùng tên / mã") + " — chọn tay ở '🔗 Ghép Zalo'")
+            elif key_count[ident(t)] > 1:
+                errors.append("Có nhiều người nhận trùng tên / mã, không biết PDF của ai")
             elif any(pdf_users[f] > 1 for f in own):
                 shared = [os.path.basename(f) for f in own if pdf_users[f] > 1]
                 errors.append("File PDF khớp nhiều khách: " + ", ".join(shared))
@@ -254,6 +292,7 @@ class CheckTable(ttk.Frame):
         self.columns, self.rows, self.checked = [], [], set()
         self.order = None        # v1.7: thứ tự hiển thị (danh sách chỉ số dòng); None = như dữ liệu gốc
         self.row_filter = None   # v1.7: hàm lọc thêm (chỉ số dòng -> True/False)
+        self.is_locked = None    # v1.11: dòng không cho tích (vd nhóm nội bộ "Xử lý")
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=(0, 6))
@@ -314,6 +353,8 @@ class CheckTable(ttk.Frame):
 
     def toggle(self, iid):
         idx = int(iid)
+        if self.is_locked and self.is_locked(idx) and idx not in self.checked:
+            return
         if idx in self.checked:
             self.checked.discard(idx)
         else:
@@ -338,6 +379,8 @@ class CheckTable(ttk.Frame):
 
     def set_visible(self, value):
         for iid in self.tree.get_children():
+            if value and self.is_locked and self.is_locked(int(iid)):
+                continue
             (self.checked.add if value else self.checked.discard)(int(iid))
             self.tree.set(iid, "_chk", CHECK if value else UNCHECK)
         self.on_change()
@@ -386,6 +429,9 @@ class ZaloListTab(ttk.Frame):
         self.table = CheckTable(self, app.update_count)
         self.table.pack(fill="both", expand=True, pady=(6, 0))
         self.table.row_filter = self.visible
+        if kind == "nhom":
+            self.table.is_locked = lambda i: i < len(self.items) and core.is_internal_group(
+                self.items[i]["name"], self.app.internal_kw)
         self.menu = self._build_menu()
         self.table.tree.bind("<Button-3>", lambda e: self.menu.tk_popup(e.x_root, e.y_root))
         self.update_view_label()
@@ -501,6 +547,8 @@ class ZaloListTab(ttk.Frame):
             matched = "; ".join(mc.get(k, []))
             when = sent.strftime("%d/%m/%Y %H:%M") if sent else ""
             if self.kind == "nhom":
+                if core.is_internal_group(it["name"], self.app.internal_kw):
+                    matched = "🔒 Nhóm nội bộ (Xử lý) — không gửi"
                 out.append([it["name"], it.get("members", ""), core.dropbox_code(it["name"]), matched, when])
             else:
                 same = int(it.get("same_name", 1))
@@ -679,7 +727,14 @@ class App(tk.Tk):
         self.step1_plans = []
         self.buffer = None
         self.gmap = core.GroupMap()  # v1.7: ghi nhớ ghép nhóm
-        self.tstore = core.TemplateStore(DEFAULT_TEMPLATE, "AONE")  # v1.8: kho mẫu tin nhắn
+        self.pdfmap = core.PdfMap()  # v1.11: PDF chọn tay theo Mã khách hàng
+        self.file_meta = {}
+        self.den_ngay = tk.StringVar(value=f"{datetime.date.today():%d/%m/%Y}")
+        self.den_ngay.trace_add("write", lambda *_: self.schedule_refresh())
+        self.show_zero = tk.BooleanVar(value=False)
+        self.internal_kw = [core.strip_accents(k) for k in st.get("internal_keywords", ["xử lý"])]
+        self.tstore = core.TemplateStore(DEFAULT_TEMPLATE, "AONE",
+                                         builtins={CONG_NO_NAME: CONG_NO_TEMPLATE})  # v1.8 kho mẫu; v1.11 mẫu Công nợ
         self._refresh_job = None
         self._build()
         self._load_saved_groups()
@@ -829,14 +884,32 @@ class App(tk.Tk):
             cb.pack(side="left", padx=(3, 12))
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_info())
             self.col_boxes[key] = cb
+        # v1.11: file công nợ của kế toán — chọn sheet, cột Mã KH / Số Dropbox / Số tiền
+        cfg2 = ttk.Frame(tab1)
+        cfg2.pack(fill="x", pady=(0, 4))
+        ttk.Label(cfg2, text="Sheet:").pack(side="left")
+        self.sheet_cb = ttk.Combobox(cfg2, state="readonly", width=22)
+        self.sheet_cb.pack(side="left", padx=(3, 12))
+        self.sheet_cb.bind("<<ComboboxSelected>>", lambda e: self.excel_path and self.load_file(
+            self.excel_path, sheet=self.sheet_cb.get()))
+        for key, label in (("key", "Cột mã KH:"), ("code", "Cột Số Dropbox:"), ("amount", "Cột số tiền:")):
+            ttk.Label(cfg2, text=label).pack(side="left")
+            cb = ttk.Combobox(cfg2, state="readonly", width=18)
+            cb.pack(side="left", padx=(3, 12))
+            cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_info())
+            self.col_boxes[key] = cb
+        ttk.Checkbutton(cfg2, text="Hiện cả khách đã hết nợ", variable=self.show_zero,
+                        command=lambda: self.cust_table.refresh()).pack(side="left", padx=(4, 10))
+        ttk.Button(cfg2, text="📤 DS cần xử lý", command=self.export_issues).pack(side="right")
         self.phone_warn = ttk.Label(tab1, text="", foreground="#c0392b", font=("", 9, "bold"))
         self.hint1 = ttk.Label(tab1, text="Bấm ô ☐ để tích / bỏ tích. Bấm vào tên khách để xem trước tin nhắn. "
-                            "Dòng có SĐT tìm theo SĐT, không có SĐT tìm theo tên Zalo / tên nhóm.",
+                            "Có cột Số Dropbox thì ghép nhóm Zalo theo mã; nhóm có chữ 'Xử lý' là nội bộ, không gửi.",
                                foreground="gray")
         self.hint1.pack(anchor="w")
         pane = ttk.PanedWindow(tab1, orient="vertical")
         pane.pack(fill="both", expand=True, pady=(6, 0))
         self.cust_table = CheckTable(pane, self.update_count, on_select=self.preview_row)
+        self.cust_table.tree.bind("<Button-3>", self.cust_menu)  # v1.11: chọn mẫu tin riêng cho khách
         pane.add(self.cust_table, weight=3)
         pvf = ttk.Frame(pane)
         pane.add(pvf, weight=2)
@@ -865,43 +938,141 @@ class App(tk.Tk):
         if path:
             self.load_file(path)
 
-    def load_file(self, path, auto=False):
+    def load_file(self, path, auto=False, sheet=None):
         try:
-            df = core.load_customers(path)
+            df, meta = core.load_table(path, sheet or (core.load_settings().get("excel_sheet")
+                                                        if core.load_settings().get("excel_path") == path else None))
         except Exception as e:
             messagebox.showerror("Lỗi đọc file", str(e))
             return
         if df.empty:
-            messagebox.showwarning("File trống", "Không có dòng dữ liệu nào.")
+            messagebox.showwarning("File trống", "Không có dòng dữ liệu nào (hoặc không tìm thấy dòng tên cột).")
             return
-        self.df = df
+        self.df, self.file_meta = df, meta
+        self.sheet_cb["values"] = meta.get("sheets", [])
+        self.sheet_cb.set(meta.get("sheet", ""))
+        if meta.get("den_ngay"):
+            self.den_ngay.set(meta["den_ngay"])
         cols = list(df.columns)
-        phone = core.guess_phone_column(cols)
-        zalo = core.guess_zalo_name_column([c for c in cols if c != phone])
-        name = core.guess_name_column(cols, exclude=[zalo] if zalo else ())
-        pdf = core.guess_pdf_column([c for c in cols if c not in (phone, zalo, name)
-                                     and not core.is_money_column(c)])
-        if not phone and not zalo and name:
-            zalo = name  # không có SĐT: tìm nhóm / tài khoản Zalo theo tên khách
+        g = {"phone": core.guess_phone_column(cols), "key": core.guess_key_column(cols),
+             "code": core.guess_code_column(cols), "amount": core.guess_amount_column(cols)}
+        g["zalo"] = core.guess_zalo_name_column([c for c in cols if c not in (g["phone"], g["code"])])
+        g["name"] = core.guess_name_column(cols, exclude=[c for c in (g["zalo"], g["key"]) if c])
+        g["pdf"] = core.guess_pdf_column([c for c in cols if c not in g.values() and not core.is_money_column(c)])
+        if not g["phone"] and not g["zalo"] and not g["code"] and g["name"]:
+            g["zalo"] = g["name"]  # không có SĐT / Số Dropbox: tìm nhóm Zalo theo tên khách
         saved = core.load_settings()
         if saved.get("excel_path") == path:  # khôi phục cột đã chọn lần trước
-            sc = saved.get("columns", {})
-            phone, name, zalo, pdf = (sc.get(k, v) if sc.get(k) in cols or sc.get(k) is None else v
-                                      for k, v in (("phone", phone), ("name", name), ("zalo", zalo), ("pdf", pdf)))
-        for key, val, optional in (("phone", phone, True), ("name", name or cols[0], False),
-                                   ("zalo", zalo, True), ("pdf", pdf, True)):
+            for k, v in saved.get("columns", {}).items():
+                if k in g and (v in cols or v is None):
+                    g[k] = v
+        for key in ("phone", "name", "zalo", "pdf", "key", "code", "amount"):
+            optional = key != "name"
             cb = self.col_boxes[key]
             cb["values"] = ([NONE] if optional else []) + cols
-            cb.set(val or NONE)
-        self.file_label.config(text=f"{os.path.basename(path)} — {len(df)} khách hàng"
-                                    + (" (tự mở lại file lần trước)" if auto else ""))
+            cb.set(g.get(key) or (NONE if optional else cols[0]))
+        n_debt = sum(1 for i in range(len(df)) if self._cust_visible(i))
+        self.file_label.config(text=f"{os.path.basename(path)} — {len(df)} dòng"
+                                    + (f", {n_debt} còn nợ" if self.col("amount") else "")
+                                    + (" (mở lại lần trước)" if auto else ""))
         self.excel_path = path
+        self.cust_table.row_filter = self._cust_visible
         self.refresh_info(keep_checked=False)
-        self.cust_table.set_visible(True)  # mặc định tích chọn tất cả
-        if self.step1_plans:
-            self.cust_table.tree.selection_set("0")
-            self.preview_row(0)
-        core.save_settings(excel_path=path)
+        self.cust_table.set_visible(True)  # tích chọn các dòng đang hiện (file công nợ: chỉ khách còn nợ)
+        kids = self.cust_table.tree.get_children()
+        if kids:
+            self.cust_table.tree.selection_set(kids[0])
+            self.preview_row(int(kids[0]))
+        core.save_settings(excel_path=path, excel_sheet=meta.get("sheet"))
+
+    def cust_menu(self, event):
+        """v1.11 (PRO): chuột phải vào khách -> chọn mẫu tin riêng cho khách này (nhớ theo Mã KH)."""
+        iid = self.cust_table.tree.identify_row(event.y)
+        if not iid or int(iid) >= len(self.step1_plans):
+            return
+        self.cust_table.tree.selection_set(iid)
+        self.preview_row(int(iid))
+        t = self.step1_plans[int(iid)]["t"]
+        m = tk.Menu(self, tearoff=0)
+        if not lic.is_pro():
+            m.add_command(label="🔒 Chọn mẫu tin riêng cho khách này  (PRO)", command=lambda: UpgradeWindow(self))
+        elif not t.get("cust_key"):
+            m.add_command(label="Cần chọn 'Cột mã KH' để chọn mẫu tin riêng cho từng khách", state="disabled")
+        else:
+            m.add_command(label=f"Mẫu tin cho: {t['label'] or t['cust_key']}", state="disabled")
+            cur = tk.StringVar(value=t.get("tpl_name") or "")
+            m.add_radiobutton(label="(Dùng mẫu chung của đợt gửi)", variable=cur, value="",
+                              command=lambda: self.set_cust_tpl(t["cust_key"], ""))
+            for name in self.tstore.names():
+                m.add_radiobutton(label=name, variable=cur, value=name,
+                                  command=lambda n=name: self.set_cust_tpl(t["cust_key"], n))
+            m._var = cur
+        m.tk_popup(event.x_root, event.y_root)
+
+    def set_cust_tpl(self, key, name):
+        d = core.load_settings().get("cust_tpl", {})
+        if name:
+            d[core.norm_name(key)] = name
+        else:
+            d.pop(core.norm_name(key), None)
+        core.save_settings(cust_tpl=d)
+        self.refresh_info()
+
+    def export_issues(self):
+        """v1.11: xuất danh sách khách còn nợ nhưng chưa gửi được / cần kiểm tra -> Excel cho kế toán."""
+        if self.df is None or not self.step1_plans:
+            messagebox.showinfo("Chưa có dữ liệu", "Hãy chọn file Excel trước.")
+            return
+        rows = []
+        for i, p in enumerate(self.step1_plans):
+            if not self._cust_visible(i) or not (p["error"] or p["warn"]):
+                continue
+            t = p["t"]
+            rows.append([t.get("cust_key", ""), t["label"], t.get("code_raw", ""),
+                         core.parse_amount(t["row"].get(AMOUNT_FIELD, "")) or None,
+                         (t.get("match") or {}).get("zalo") or "", p["error"] or ("⚠ " + p["warn"])])
+        if not rows:
+            messagebox.showinfo("Không có", "Không có khách nào cần xử lý. 👍")
+            return
+        path = filedialog.asksaveasfilename(title="Lưu danh sách cần xử lý", defaultextension=".xlsx",
+                                            filetypes=[("Excel", "*.xlsx")],
+                                            initialfile=f"DanhSachCanXuLy_{datetime.datetime.now():%Y%m%d_%H%M}.xlsx")
+        if not path:
+            return
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Cần xử lý"
+            ws.append(["Mã khách hàng", "Tên khách hàng", "Số Dropbox", "Số tiền", "Nhóm Zalo (gợi ý)", "Vấn đề"])
+            for r in rows:
+                ws.append(r)
+            for c in ws[1]:
+                c.font = Font(bold=True, color="FFFFFF")
+                c.fill = PatternFill("solid", fgColor="C0392B")
+            for col, w in zip("ABCDEF", (16, 46, 14, 14, 40, 90)):
+                ws.column_dimensions[col].width = w
+            for r in ws.iter_rows(min_row=2, min_col=4, max_col=4):
+                r[0].number_format = "#,##0"
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            wb.save(path)
+        except PermissionError:
+            messagebox.showerror("Không lưu được", "File đang mở trong Excel. Hãy đóng file rồi thử lại.")
+            return
+        if messagebox.askyesno("Đã xuất", f"Đã lưu {len(rows)} khách cần xử lý vào:\n{path}\n\nMở file ngay?"):
+            try:
+                os.startfile(path)
+            except Exception:
+                pass
+
+    def _cust_visible(self, i):
+        """v1.11: có cột số tiền thì mặc định chỉ hiện khách còn nợ (> 0)."""
+        ac = self.col("amount") if hasattr(self, "col_boxes") else None
+        if self.df is None or not ac or self.show_zero.get() or i >= len(self.df):
+            return True
+        return (core.parse_amount(self.df.iloc[i][ac]) or 0) > 0
 
     # --- v1.4: thư mục PDF, bảng thông tin & xem trước ở Bước 1 ---
     def pick_pdf_dir(self):
@@ -974,6 +1145,8 @@ class App(tk.Tk):
 
     def customer_targets(self, indices):
         pc, nc, zc, fc = self.col("phone"), self.col("name"), self.col("zalo"), self.col("pdf")
+        kc, cc, ac = self.col("key"), self.col("code"), self.col("amount")
+        cust_tpl = core.load_settings().get("cust_tpl", {}) if lic.is_pro() else {}
         zitems = self.zalo_items()
         ztypes = {}
         for z in zitems:  # tên vừa là nhóm vừa là bạn bè -> coi là nhóm (đằng nào cũng bị coi là trùng)
@@ -990,9 +1163,40 @@ class App(tk.Tk):
                 "row": row,
                 "own_pdf": row.get(fc, "") if fc else "",
             }
+            # v1.11: file công nợ — Mã KH làm chìa khóa, {Số tiền} = cột số tiền, ghép theo Số Dropbox
+            if kc and row.get(kc, "").strip():
+                t["cust_key"] = row[kc].strip()
+                t["pdf_manual"] = self.pdfmap.get(t["cust_key"])
+                name = cust_tpl.get(core.norm_name(t["cust_key"]))
+                if name and name in self.tstore.templates:
+                    t["tpl_name"], t["tpl_text"] = name, self.tstore.get(name)
+            if ac:
+                row = dict(row)
+                row.setdefault(AMOUNT_FIELD, row.get(ac, ""))
+                t["row"] = row
+            if cc:
+                t["code_raw"] = row.get(cc, "")
+                t["code_parsed"] = core.parse_code(t["code_raw"])
+                if not t["label"]:
+                    t["label"] = t["code_raw"]
+                if not t["search_name"]:
+                    t["search_name"] = t["label"] or t["code_raw"] or ""
+            if cc and not t["phone"]:
+                t["excel_name"] = t["label"] or t["code_raw"]
+                if zitems:
+                    m = core.match_group(t["label"], [z["name"] for z in zitems], self.gmap, ztypes,
+                                         code=t["code_raw"], map_key=t.get("cust_key"))
+                else:
+                    m = {"status": core.MATCH_NONE, "zalo": None, "candidates": [], "score": None, "type": None,
+                         "note": "chưa lấy danh sách nhóm Zalo (thẻ Nhóm Zalo)"}
+                t["match"] = m
+                if m["status"] in core.MATCH_OK:
+                    t["search_name"] = m["zalo"]
+                    t["zalo_type"] = m["type"]
             # v1.7: ghép tên trong Excel -> tên nhóm THẬT trên Zalo (mã Dropbox / tên công ty / đã xác nhận)
-            if not t["phone"] and t["search_name"] and zitems:
-                m = core.match_group(t["search_name"], [z["name"] for z in zitems], self.gmap, ztypes)
+            elif not t["phone"] and t["search_name"] and zitems:
+                m = core.match_group(t["search_name"], [z["name"] for z in zitems], self.gmap, ztypes,
+                                     map_key=t.get("cust_key"))
                 t["excel_name"] = t["search_name"]
                 t["match"] = m
                 if m["status"] in core.MATCH_OK:
@@ -1012,9 +1216,13 @@ class App(tk.Tk):
         if self.df is None:
             return
         cols = list(self.df.columns)
+        if self.col("code"):  # v1.11: file công nợ — chỉ hiện các cột cần thiết (cột bôi vàng + tên để dễ nhìn)
+            cols = [c for c in dict.fromkeys((self.col("key"), self.col("name"), self.col("code"), self.col("amount")))
+                    if c]
         targets = self.customer_targets(range(len(self.df)))
         plans, _ = build_plans(targets, self.current_template(), self.month.get(), self.pdf_dir.get(), [],
-                               bool(self.col("pdf")), self.zalo_items(), self.check_groups.get())
+                               bool(self.col("pdf")), self.zalo_items(), self.check_groups.get(),
+                               den_ngay=self.den_ngay.get(), internal_kw=self.internal_kw)
         self.step1_plans = plans
         # v1.6: tự soạn sẵn vào bộ nhớ đệm của tháng (khách đã gửi giữ nguyên)
         buf = self.get_buffer()
@@ -1024,11 +1232,15 @@ class App(tk.Tk):
         for p in plans:
             vals = [p["row"].get(c, "") for c in cols]  # số tiền đã định dạng 5.000.000
             pdf = ", ".join(os.path.basename(f) for f in p["files"]) or ("❌ không thấy" if self.pdf_dir.get() else "—")
-            rows.append(vals + [pdf, p["zalo"] or "—", ("❌ " + p["error"]) if p["error"] else "✅ Sẵn sàng",
-                                buf.status_text(buf.key_of(p["t"]))])
-        extra = ["📎 File PDF", "Nhóm Zalo", "Kiểm tra", "Gửi"]
+            rows.append(vals + [pdf, p["zalo"] or "—", ("❌ " + p["error"]) if p["error"] else
+                                (("⚠ " + p["warn"]) if p["warn"] else "✅ Sẵn sàng"),
+                                buf.status_text(buf.key_of(p["t"]))]
+                        + ([p["t"].get("tpl_name") or "(mẫu chung)"] if lic.is_pro() else []))
+        extra = ["📎 File PDF", "Nhóm Zalo", "Kiểm tra", "Gửi"] + (["Mẫu tin"] if lic.is_pro() else [])
         widths = {c: 190 for c in cols}
-        widths.update({"📎 File PDF": 190, "Nhóm Zalo": 90, "Kiểm tra": 190, "Gửi": 240})
+        widths.update({"📎 File PDF": 190, "Nhóm Zalo": 200, "Kiểm tra": 220, "Gửi": 200, "Mẫu tin": 130})
+        if self.col("code"):
+            widths.update({self.col("key"): 110, self.col("code"): 90, self.col("amount"): 110})
         self.cust_table.set_data(cols + extra, rows, keep_checked=keep_checked, widths=widths)
         sel = self.cust_table.tree.selection()
         if sel:
@@ -1043,7 +1255,8 @@ class App(tk.Tk):
         else:
             self.phone_warn.pack_forget()
         # v1.7: số khách cần xác nhận ghép nhóm + cột "Khách đã ghép" ở thẻ Nhóm Zalo
-        need = sum(1 for t in targets if t.get("match") and t["match"]["status"] not in core.MATCH_OK)
+        need = sum(1 for i, t in enumerate(targets) if self._cust_visible(i)
+                   and t.get("match") and t["match"]["status"] not in core.MATCH_OK)
         self.match_label.config(text=f"⚠ {need} cần xác nhận →" if need else "")
         if self.groups or self.friends:
             self.update_group_table(keep_checked=True)
@@ -1063,11 +1276,13 @@ class App(tk.Tk):
             self.preview_info.config(text=f"{name}   {buf.status_text(buf.key_of(p['t']))}   "
                                           f"📎 {', '.join(it.get('sent_files') or []) or '—'}", foreground="#7f8c8d")
             return
-        show_preview(self.preview_text, self.current_template(), p["row"])
+        show_preview(self.preview_text, p.get("tpl") or self.current_template(), p["row"])
         files = ", ".join(os.path.basename(f) for f in p["files"])
-        info = name + (f"   📎 {files}" if files else "")
+        info = name + (f"   📎 {files}" if files else "") + (f"   📝 {p['t']['tpl_name']}" if p["t"].get("tpl_name") else "")
         if p["error"]:
             info += "   ⚠ " + p["error"]
+        elif p.get("warn"):
+            info += "   ⚠ " + p["warn"]
         self.preview_info.config(text=info, foreground="#c0392b" if p["error"] else "#1e8449")
 
     def col(self, key):
@@ -1085,7 +1300,8 @@ class App(tk.Tk):
 
     def zalo_items(self):
         """Mọi tên trên Zalo (nhóm + bạn bè). Bạn bè trùng tên được lặp lại để luôn bị coi là 'không rõ ràng'."""
-        out = [{"name": g["name"], "type": "nhom"} for g in self.groups]
+        out = [{"name": g["name"], "type": "nhom"} for g in self.groups
+               if not core.is_internal_group(g["name"], self.internal_kw)]  # v1.11: bỏ nhóm nội bộ "Xử lý"
         for f in (self.friends if lic.is_pro() else []):  # ghép với bạn bè: chỉ bản PRO
             out += [{"name": f["name"], "type": "ban"}] * max(1, int(f.get("same_name", 1)))
         return out
@@ -1139,8 +1355,8 @@ class App(tk.Tk):
     def open_step2(self):
         targets = []
         if self.df is not None and self.cust_table.checked:
-            if not self.col("phone") and not self.col("zalo"):
-                messagebox.showwarning("Thiếu cột", "Hãy chọn Cột SĐT hoặc Cột tên Zalo / tên nhóm.")
+            if not self.col("phone") and not self.col("zalo") and not self.col("code"):
+                messagebox.showwarning("Thiếu cột", "Hãy chọn Cột SĐT, Cột tên Zalo / tên nhóm hoặc Cột Số Dropbox.")
                 return
             targets = self.customer_targets(sorted(self.cust_table.checked))
         # v1.4: nhóm trùng tên với khách trong Excel -> gộp (chỉ gửi 1 lần, dùng dữ liệu Excel)
@@ -1210,10 +1426,14 @@ class ComposeWindow(tk.Toplevel):
         self.month = self.app.month  # dùng chung với Bước 1
         ttk.Entry(top, textvariable=self.month, width=10).pack(side="left", padx=4)
         self._mtrace = self.month.trace_add("write", lambda *_: self.update_preview())
+        ttk.Label(top, text="   Đến ngày {Đến ngày}:").pack(side="left")
+        ttk.Entry(top, textvariable=self.app.den_ngay, width=11).pack(side="left", padx=4)
+        self._dtrace = self.app.den_ngay.trace_add("write", lambda *_: self.update_preview())
 
         ph = ttk.Frame(self)
         ph.pack(fill="x", padx=10)
-        fields = [MONTH_FIELD] + ([ZALO_FIELD] if lic.is_pro() else []) + ([GROUP_FIELD] if self.has_groups else []) + \
+        fields = [MONTH_FIELD, DATE_FIELD, AMOUNT_FIELD] + ([ZALO_FIELD] if lic.is_pro() else []) + \
+                 ([GROUP_FIELD] if self.has_groups else []) + \
                  ([FRIEND_FIELD] if self.has_friends else []) + \
                  [c for c in (self.cust_cols if self.has_custs else []) if c != MONTH_FIELD]
         ttk.Label(ph, text="Chèn trường:").pack(side="left")
@@ -1232,8 +1452,7 @@ class ComposeWindow(tk.Toplevel):
         self.tpl_cb.pack(side="left", padx=4)
         self.tpl_cb.bind("<<ComboboxSelected>>", lambda e: self.choose_template())
         pro = lic.is_pro()
-        if not pro:
-            self.tpl_cb.config(state="disabled")  # Standard: chỉ 1 mẫu
+        # v1.11: Standard cũng CHỌN được giữa các mẫu có sẵn (AONE, AONE – Công nợ); tạo/sửa tên/xóa là PRO
         for txt, cmd, need_pro in (("➕ Tạo mới", self.tpl_new, True), ("💾 Lưu", self.tpl_save, False),
                                    ("✏ Đổi tên", self.tpl_rename, True), ("🗑 Xóa", self.tpl_delete, True),
                                    ("⭐ Đặt mặc định", self.tpl_default, True)):
@@ -1428,9 +1647,11 @@ class ComposeWindow(tk.Toplevel):
         tpl = self.template()
         plans, _ = self._plan(tpl, only=[idx])
         p = plans[0]
-        show_preview(self.preview, tpl, p["row"])
+        show_preview(self.preview, p.get("tpl") or tpl, p["row"])
         names = [os.path.basename(f) for f in p["files"]]
         txt = ("📎 Gửi kèm: " + ", ".join(names)) if names else "📎 Không có file PDF"
+        if p["t"].get("tpl_name"):
+            txt += f"   📝 Khách này dùng mẫu riêng: {p['t']['tpl_name']}"
         if p["error"]:
             txt += "   ⚠ " + p["error"]
         self.preview_pdf.config(text=txt, foreground="#c0392b" if p["error"] else "#1e8449")
@@ -1485,7 +1706,8 @@ class ComposeWindow(tk.Toplevel):
     def _plan(self, tpl, only=None):
         app = self.app
         plans, unmatched = build_plans(self.targets, tpl, app.month.get(), app.pdf_dir.get(), self.shared_pdfs,
-                                       self.has_pdf_col, app.zalo_items(), app.check_groups.get(), only=only)
+                                       self.has_pdf_col, app.zalo_items(), app.check_groups.get(), only=only,
+                                       den_ngay=app.den_ngay.get(), internal_kw=app.internal_kw)
         if only is None:  # v1.6: đối chiếu bộ nhớ đệm
             buf = app.get_buffer()
             buf.sync(plans)
@@ -1631,6 +1853,7 @@ class ComposeWindow(tk.Toplevel):
             self.stop_flag.set()
         try:
             self.month.trace_remove("write", self._mtrace)
+            self.app.den_ngay.trace_remove("write", self._dtrace)
         except Exception:
             pass
         self.destroy()
@@ -1668,10 +1891,10 @@ class GroupMatchWindow(tk.Toplevel):
 
         box = ttk.Frame(self, padding=(8, 0))
         box.pack(fill="both", expand=True)
-        cols = ("excel", "zalo", "status")
+        cols = ("excel", "zalo", "status", "pdf")
         self.tree = ttk.Treeview(box, columns=cols, show="headings", selectmode="browse")
-        for c, t, w in (("excel", "Tên khách trong Excel", 360), ("zalo", "Nhóm / bạn bè Zalo", 360),
-                        ("status", "Trạng thái", 330)):
+        for c, t, w in (("excel", "Khách trong Excel", 300), ("zalo", "Nhóm / bạn bè Zalo", 300),
+                        ("status", "Trạng thái", 300), ("pdf", "📎 File PDF", 230)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
         self.tree.tag_configure("ok", foreground="#1e8449")
@@ -1695,6 +1918,13 @@ class GroupMatchWindow(tk.Toplevel):
         self.combo.bind("<KeyRelease>", self.on_type)
         ttk.Button(row, text="✔ Xác nhận", command=self.confirm_current).pack(side="left", padx=4)
         ttk.Button(row, text="↺ Xóa xác nhận", command=self.forget_current).pack(side="left")
+        prow = ttk.Frame(edit)  # v1.11: chọn file PDF bằng tay khi không tự ghép được
+        prow.pack(fill="x", pady=(2, 4))
+        ttk.Label(prow, text="File PDF:").pack(side="left")
+        self.pdf_label = ttk.Label(prow, text="—", foreground="#0050C8")
+        self.pdf_label.pack(side="left", padx=6)
+        ttk.Button(prow, text="📎 Chọn file PDF…", command=self.pick_pdf).pack(side="left", padx=4)
+        ttk.Button(prow, text="✖ Bỏ PDF chọn tay", command=self.clear_pdf).pack(side="left")
         ttk.Label(edit, text="[Nhóm] = nhóm Zalo, [Bạn bè] = chat riêng với bạn bè. Xếp theo độ giống với tên khách. "
                              "Lựa chọn được GHI NHỚ — lần sau không hỏi lại.", foreground="gray").pack(anchor="w")
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -1709,23 +1939,40 @@ class GroupMatchWindow(tk.Toplevel):
     def unlab(text):
         return re.sub(r"^\s*\[(Nhóm \+ Bạn bè|Nhóm|Bạn bè)\]\s*", "", text or "").strip()
 
+    @staticmethod
+    def mkey(t):
+        return t.get("cust_key") or t["excel_name"]  # v1.11: ghi nhớ theo Mã khách hàng nếu có
+
+    def show_name(self, t):
+        return f"{t.get('code_raw') or '—'}  ·  {t['label']}" if "code_raw" in t else t["excel_name"]
+
     def reload(self, select=None):
-        self.targets = [t for t in self.app.customer_targets(range(len(self.app.df))) if t.get("match")]
+        app = self.app
+        plans = app.step1_plans
+        self.rows = [(i, t, plans[i] if i < len(plans) else None)
+                     for i, t in enumerate(app.customer_targets(range(len(app.df))))
+                     if t.get("match") and app._cust_visible(i)]
+        self.targets = [t for _, t, _ in self.rows]
         self.tree.delete(*self.tree.get_children())
-        need = 0
-        for i, t in enumerate(self.targets):
+        need = pdf_need = 0
+        for k, (i, t, p) in enumerate(self.rows):
             m = t["match"]
             ok = m["status"] in core.MATCH_OK
+            pdf_err = bool(p and ("PDF" in p["error"]) and app.pdf_dir.get())
+            warn = m.get("warn_name")
             need += not ok
-            if self.only_need.get() and ok and str(i) != select:
+            pdf_need += ok and pdf_err
+            if self.only_need.get() and ok and not pdf_err and not warn and str(k) != select:
                 continue
             zalo = self.lab(m["zalo"]) if m["zalo"] else \
                 ("— " + str(len(m["candidates"])) + " ứng viên" if m["candidates"] else "—")
-            tag = "ok" if ok else ("none" if m["status"] == core.MATCH_NONE else "need")
-            self.tree.insert("", "end", iid=str(i), tags=(tag,),
-                             values=(t["excel_name"], zalo, f"{self.LABELS[m['status']]} ({m['note']})"))
-        self.summary.config(text=f"{len(self.targets)} khách — ✅ đã ghép: {len(self.targets) - need}   "
-                                 f"⚠ cần xác nhận: {need}")
+            tag = "ok" if ok and not pdf_err else ("none" if m["status"] == core.MATCH_NONE else "need")
+            st = f"{self.LABELS[m['status']]} ({m['note']})" + (f" ⚠ {warn}" if warn else "")
+            pdf = (", ".join(os.path.basename(f) for f in p["files"]) if p and p["files"] else
+                   ("❌ chưa có" if pdf_err else "—")) + (" (chọn tay)" if t.get("pdf_manual") else "")
+            self.tree.insert("", "end", iid=str(k), tags=(tag,), values=(self.show_name(t), zalo, st, pdf))
+        self.summary.config(text=f"{len(self.rows)} khách — ✅ đã ghép nhóm: {len(self.rows) - need}   "
+                                 f"⚠ cần xác nhận nhóm: {need}" + (f"   📎 thiếu PDF: {pdf_need}" if pdf_need else ""))
         if select and self.tree.exists(select):
             self.tree.selection_set(select)
             self.tree.see(select)
@@ -1739,7 +1986,10 @@ class GroupMatchWindow(tk.Toplevel):
         if t is None:
             return
         m = t["match"]
-        self.cur_label.config(text=f"Khách: {t['excel_name']}     →     {self.LABELS[m['status']]} ({m['note']})")
+        self.cur_label.config(text=f"Khách: {self.show_name(t)}     →     {self.LABELS[m['status']]} ({m['note']})")
+        p = self.rows[i][2]
+        self.pdf_label.config(text=(", ".join(os.path.basename(f) for f in p["files"]) if p and p["files"] else "—")
+                              + (" (chọn tay)" if t.get("pdf_manual") else ""))
         ranked = list(dict.fromkeys(m["candidates"] + sorted(
             self.uniq_names, key=lambda g: -core.name_similarity(t["excel_name"], g))))
         self.ranked = [self.lab(g) for g in ranked]
@@ -1767,13 +2017,13 @@ class GroupMatchWindow(tk.Toplevel):
                                       if len(exact) > 1 else ""), parent=self)
             return
         kind = next(iter(self.types.get(core.norm_name(exact[0]), {"nhom"})))
-        self.app.gmap.confirm(t["excel_name"], exact[0], kind)
+        self.app.gmap.confirm(self.mkey(t), exact[0], kind)
         self.after_change(str(i))
 
     def forget_current(self):
         i, t = self.current()
         if t is not None:
-            self.app.gmap.forget(t["excel_name"])
+            self.app.gmap.forget(self.mkey(t))
             self.after_change(str(i))
 
     def confirm_all(self):
@@ -1781,18 +2031,44 @@ class GroupMatchWindow(tk.Toplevel):
         if not sug:
             messagebox.showinfo("Không có gợi ý", "Không có dòng nào ở trạng thái Gợi ý.", parent=self)
             return
-        lines = "\n".join(f"• {t['excel_name']}  →  {self.lab(t['match']['zalo'])}" for t in sug[:15])
+        lines = "\n".join(f"• {self.show_name(t)}  →  {self.lab(t['match']['zalo'])}" for t in sug[:15])
         more = f"\n… và {len(sug) - 15} dòng khác" if len(sug) > 15 else ""
         if messagebox.askyesno("Xác nhận tất cả gợi ý", f"Xác nhận {len(sug)} gợi ý sau?\n\n{lines}{more}",
                                parent=self):
             for t in sug:
-                self.app.gmap.confirm(t["excel_name"], t["match"]["zalo"], t["match"].get("type") or "nhom")
+                self.app.gmap.confirm(self.mkey(t), t["match"]["zalo"], t["match"].get("type") or "nhom")
             self.after_change()
 
+    def pick_pdf(self):
+        i, t = self.current()
+        if t is None:
+            messagebox.showinfo("Chưa chọn", "Bấm vào một dòng trong bảng trước.", parent=self)
+            return
+        folder = self.app.pdf_dir.get()
+        if not folder:
+            messagebox.showinfo("Chưa có thư mục PDF", "Hãy bấm 'Chọn thư mục PDF' ở Bước 1 trước.", parent=self)
+            return
+        files = filedialog.askopenfilenames(parent=self, title=f"Chọn file PDF cho {self.show_name(t)}",
+                                            initialdir=folder, filetypes=[("PDF", "*.pdf")])
+        if not files:
+            return
+        if any(os.path.normcase(os.path.dirname(os.path.abspath(f))) != os.path.normcase(os.path.abspath(folder))
+               for f in files):
+            messagebox.showwarning("Sai thư mục", "Chỉ chọn file nằm trong thư mục PDF đã chọn ở Bước 1.", parent=self)
+            return
+        self.app.pdfmap.set(self.mkey(t), [os.path.basename(f) for f in files])
+        self.after_change(str(i))
+
+    def clear_pdf(self):
+        i, t = self.current()
+        if t is not None:
+            self.app.pdfmap.set(self.mkey(t), [])
+            self.after_change(str(i))
+
     def after_change(self, select=None):
+        self.app.refresh_info()
         self.reload(select)
         self.on_select()
-        self.app.refresh_info()
 
     def close(self):
         self.destroy()
