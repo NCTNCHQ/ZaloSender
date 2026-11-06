@@ -52,6 +52,14 @@ Tác giả / chủ dự án: **Nguyễn Công Trung** — Congtrung127@gmail.com
 - Thử cập nhật: dùng máy chủ HTTPS cục bộ + Xvfb cố định (`Xvfb :77`, `DISPLAY=:77`); nếu dùng `xvfb-run` thì màn hình tắt khi app cũ đóng và bản mới bị coi là lỗi.
 - Dữ liệu thật của chủ dự án (file công nợ, danh sách nhóm) chỉ để trong scratchpad, **không commit**.
 
+## Trạng thái hiện tại và việc còn treo (cập nhật mỗi lần phát hành)
+- **Bản mới nhất: v1.11** (06/11/2026), đã phát hành và kiểm tra chữ ký + SHA-256. Nội dung chính: gửi công nợ theo file kế toán, ghép theo Số Dropbox, chặn nhóm "Xử lý", mẫu "AONE – Công nợ", DS cần xử lý, mẫu riêng từng khách (PRO), thư mục cài mới (`he_thong/`).
+- **Khóa bí mật và dữ liệu thật KHÔNG còn trong phiên mới**: khi phát hành cần xin chủ dự án tải lại `khoa_bi_mat.pem`. Muốn thử với dữ liệu thật thì xin lại file công nợ và danh sách nhóm Zalo.
+- **Chưa thử trên Zalo thật / Windows thật**: các bản v1.7 → v1.11 (gửi vào nhóm thật, cửa sổ cài có màu, biểu tượng Desktop với cấu trúc mới).
+- **Chủ dự án chưa báo kết quả** lần cập nhật tự động thật đầu tiên (v1.10.1 → v1.11 bằng nút "Cập nhật ngay").
+- **Dữ liệu cần kế toán bổ sung** (theo file công nợ 05/11/2026): 25 khách thiếu Số Dropbox (#N/A), 6 khách không có nhóm mang số đó, khách 155 (Bảo Tín) có thể ghi sai mã.
+- **Quyết định đã chốt**: không sửa lỗi thư mục có dấu (chỉ nhắc); không bắt xác nhận lại toàn bộ ghép nhóm lần đầu; gợi ý "tên công ty khác nhiều" chỉ để nhắc, không chặn gửi; máy cập nhật từ bản cũ giữ cách mở cũ (không ép cài lại).
+
 ## Lưu ý từ thực tế
 - Ứng dụng phải đặt trong **thư mục không dấu** (WScript tạo shortcut lỗi với đường dẫn có dấu); chủ dự án chọn không sửa, chỉ cần nhắc.
 - Tên nhóm Zalo theo dạng "mã Dropbox + tên công ty"; Excel có thể khác tên công ty, nên ghép theo mã. Trường hợp không chắc chắn thì người dùng xác nhận và ứng dụng nhớ trong `ghep_nhom.json`.
